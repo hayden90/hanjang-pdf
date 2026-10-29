@@ -5,6 +5,7 @@ import pymupdf
 from PySide6.QtCore import QRectF
 from PySide6.QtGui import QImage, QPainter, QPageLayout
 from PySide6.QtPrintSupport import QAbstractPrintDialog, QPrintDialog, QPrinter
+from ..i18n import tr
 
 MAX_DPI = 300  # 이보다 곱게 그려도 종이에서는 차이가 없고 메모리만 든다
 
@@ -16,7 +17,7 @@ def print_pages(printer: QPrinter, doc: pymupdf.Document, pages: list[int]) -> i
     dpi = max(72, min(MAX_DPI, printer.resolution()))
     painter = QPainter()
     if not painter.begin(printer):
-        raise RuntimeError("프린터를 열지 못했습니다.")
+        raise RuntimeError(tr("프린터를 열지 못했습니다."))
     try:
         for n, pno in enumerate(pages):
             if n:
@@ -39,7 +40,7 @@ def ask_and_print(parent, doc: pymupdf.Document, current: int) -> int:
     printer.setPageOrientation(QPageLayout.Orientation.Landscape if first.width > first.height
                                else QPageLayout.Orientation.Portrait)
     dlg = QPrintDialog(printer, parent)
-    dlg.setWindowTitle("인쇄")
+    dlg.setWindowTitle(tr("인쇄"))
     dlg.setMinMax(1, doc.page_count)
     dlg.setOption(QAbstractPrintDialog.PrintDialogOption.PrintCurrentPage, True)
     if dlg.exec() != QPrintDialog.DialogCode.Accepted:

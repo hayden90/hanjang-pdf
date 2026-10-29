@@ -20,6 +20,7 @@ from ..core import annots, text_select
 from .render import page_pixmap
 from .text_box_editor import TextBoxEditor
 from .thumbs import pdf_paths_from_mime
+from ..i18n import tr
 
 GAP = 12
 DROP_EDGE = 40  # 다른 PDF를 끌고 위·아래 이 픽셀 안으로 가면 본문을 굴린다
@@ -44,8 +45,8 @@ PREVIEW = {"yellow": QColor(255, 225, 0, 90), "green": QColor(120, 220, 100, 90)
 
 def select_hint(n: int) -> str:
     """글자를 고르기 시작했을 때 상태 줄 안내(n = 고른 낱말 수)."""
-    return ("글자를 골랐습니다. 복사: Ctrl+C" if n else
-            "이 쪽에는 글자 정보가 없어(스캔·그림으로 된 쪽) 고를 수 없습니다. 도구 > 글자 인식(Ctrl+Shift+O)을 눌러 보세요.")
+    return (tr("글자를 골랐습니다. 복사: Ctrl+C") if n else
+            tr("이 쪽에는 글자 정보가 없어(스캔·그림으로 된 쪽) 고를 수 없습니다. 도구 > 글자 인식(Ctrl+Shift+O)을 눌러 보세요."))
 
 
 class PageWidget(QWidget):
@@ -490,7 +491,7 @@ class PageView(QScrollArea):
             return
         info = annots.annot_at(self.doc, index, self._to_page(index, pt))
         if info and info["text"] and info["type"] != pymupdf.PDF_ANNOT_FREE_TEXT:  # 글자 상자는 이미 보임
-            QToolTip.showText(global_pos, f"메모: {info['text']}\n(두 번 누르면 고치기)", self.pages[index])
+            QToolTip.showText(global_pos, tr("메모: {text}\n(두 번 누르면 고치기)").format(text=info['text']), self.pages[index])
         else:
             QToolTip.hideText()
 

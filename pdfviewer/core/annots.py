@@ -18,6 +18,7 @@ import unicodedata
 import pymupdf
 
 from .doc_ops import DocOpError
+from ..i18n import tr
 
 HL_COLORS = {
     "yellow": (1.0, 0.92, 0.23),
@@ -39,7 +40,7 @@ MIN_BOX_W = 60
 # MuPDF는 글 앞에 보이지 않는 기본 크기 줄을 둬 글이 상자 위에서 약 30pt 아래부터 그려진다.
 # 끌어 만든 상자는 주석 사각형을 이만큼 위로 올려, 글이 끈 자리 맨 위에서 시작하게 한다.
 BOX_LEAD = 26
-_TOO_LONG = "글자가 너무 많아 이 쪽에 다 들어가지 않습니다. 글자를 줄이거나 크기를 작게 해 주세요."
+_TOO_LONG = tr("글자가 너무 많아 이 쪽에 다 들어가지 않습니다. 글자를 줄이거나 크기를 작게 해 주세요.")
 _CJK_FONT = pymupdf.Font("cjk")
 _LATIN_FONT = pymupdf.Font("helv")
 
@@ -61,7 +62,7 @@ def _is_own(annot) -> bool:
 
 def _page(doc: pymupdf.Document, pno: int) -> pymupdf.Page:
     if not 0 <= pno < doc.page_count:
-        raise DocOpError(f"없는 쪽 번호입니다: {pno + 1}")
+        raise DocOpError(tr("없는 쪽 번호입니다: {pno}").format(pno=pno + 1))
     return doc[pno]
 
 
@@ -70,9 +71,9 @@ def add_highlight(doc: pymupdf.Document, pno: int, rect, color: str = "yellow") 
     page = _page(doc, pno)
     rect = pymupdf.Rect(rect).normalize() & _bounds(page)  # 쪽 밖으로 나간 부분은 자름
     if rect.is_empty or (rect.width < MIN_DRAG and rect.height < MIN_DRAG):
-        raise DocOpError("형광펜을 칠할 곳을 마우스로 끌어서 골라 주세요.")
+        raise DocOpError(tr("형광펜을 칠할 곳을 마우스로 끌어서 골라 주세요."))
     if color not in HL_COLORS:
-        raise DocOpError(f"모르는 형광펜 색입니다: {color}")
+        raise DocOpError(tr("모르는 형광펜 색입니다: {color}").format(color=color))
     words = [pymupdf.Rect(w[:4]) for w in page.get_text("words")]
     hit = [w for w in words if w.intersects(rect)]
     quads = [w.quad for w in hit] if hit else [rect.quad]
@@ -86,11 +87,11 @@ def add_highlight(doc: pymupdf.Document, pno: int, rect, color: str = "yellow") 
 def add_note(doc: pymupdf.Document, pno: int, point, text: str) -> int:
     text = (text or "").strip()
     if not text:
-        raise DocOpError("메모 내용이 비어 있습니다.")
+        raise DocOpError(tr("메모 내용이 비어 있습니다."))
     page = _page(doc, pno)
     pt = pymupdf.Point(point)
     if not _bounds(page).contains(pt):
-        raise DocOpError("쪽 안을 눌러 메모를 붙여 주세요.")
+        raise DocOpError(tr("쪽 안을 눌러 메모를 붙여 주세요."))
     annot = page.add_text_annot(pt, text, icon="Note")
     annot.set_info(title=AUTHOR, subject=MARK, content=text)
     annot.update()
@@ -161,7 +162,7 @@ def _own_annot(page: pymupdf.Page, xref: int):
     for a in page.annots(types=OWN_TYPES):
         if a.xref == xref and _is_own(a):
             return a
-    raise DocOpError("이 프로그램으로 넣은 형광펜·메모만 지우거나 고칠 수 있습니다.")
+    raise DocOpError(tr("이 프로그램으로 넣은 형광펜·메모만 지우거나 고칠 수 있습니다."))
 
 
 def delete_annot(doc: pymupdf.Document, pno: int, xref: int) -> None:
@@ -172,11 +173,11 @@ def delete_annot(doc: pymupdf.Document, pno: int, xref: int) -> None:
 def set_note_text(doc: pymupdf.Document, pno: int, xref: int, text: str) -> None:
     text = (text or "").strip()
     if not text:
-        raise DocOpError("메모 내용이 비어 있습니다. 지우려면 지우개를 쓰세요.")
+        raise DocOpError(tr("메모 내용이 비어 있습니다. 지우려면 지우개를 쓰세요."))
     page = _page(doc, pno)
     a = _own_annot(page, xref)
     if a.type[0] != pymupdf.PDF_ANNOT_TEXT:
-        raise DocOpError("메모가 아닙니다.")
+        raise DocOpError(tr("메모가 아닙니다."))
     a.set_info(content=text)
     a.update()
 
@@ -185,13 +186,13 @@ def set_note_text(doc: pymupdf.Document, pno: int, xref: int, text: str) -> None
 def _check_text(text: str, size, align: str, color: str) -> str:
     text = (text or "").replace("\r\n", "\n").replace("\r", "\n")  # 끝의 빈 줄·칸도 쓴 그대로 둔다
     if not text.strip():
-        raise DocOpError("넣을 글자가 비어 있습니다.")
+        raise DocOpError(tr("넣을 글자가 비어 있습니다."))
     if not isinstance(size, int) or not TEXT_MIN <= size <= TEXT_MAX:
-        raise DocOpError(f"글자 크기는 {TEXT_MIN}~{TEXT_MAX} 사이로 골라 주세요.")
+        raise DocOpError(tr("글자 크기는 {TEXT_MIN}~{TEXT_MAX} 사이로 골라 주세요.").format(TEXT_MIN=TEXT_MIN, TEXT_MAX=TEXT_MAX))
     if align not in TEXT_ALIGNS:
-        raise DocOpError(f"모르는 정렬입니다: {align}")
+        raise DocOpError(tr("모르는 정렬입니다: {align}").format(align=align))
     if not isinstance(color, str) or not _COLOR_RE.match(color):
-        raise DocOpError(f"모르는 색입니다: {color}")
+        raise DocOpError(tr("모르는 색입니다: {color}").format(color=color))
     return text
 
 
@@ -317,7 +318,7 @@ def add_text(doc: pymupdf.Document, pno: int, anchor, text: str, size: int = 12,
     page = _page(doc, pno)
     pt = pymupdf.Point(anchor)
     if not _bounds(page).contains(pt):
-        raise DocOpError("쪽 안을 눌러 글자를 넣어 주세요.")
+        raise DocOpError(tr("쪽 안을 눌러 글자를 넣어 주세요."))
     rows, rect = _box_rect(page, pt, text, size, align)
     return _put_text(doc, page, rect, rows, text, size, align, color, f"{pt.x:.2f}|{pt.y:.2f}")
 
@@ -332,7 +333,7 @@ def add_text_box(doc: pymupdf.Document, pno: int, box, text: str, size: int = 12
     page = _page(doc, pno)
     box = pymupdf.Rect(box).normalize()
     if box.is_empty or not box.intersects(_bounds(page)):
-        raise DocOpError("쪽 안을 끌어 글자 상자를 그려 주세요.")
+        raise DocOpError(tr("쪽 안을 끌어 글자 상자를 그려 주세요."))
     rows, rect, shown = _fixed_rect(page, box, text, size, rows)
     return _put_text(doc, page, rect, rows, text, size, align, color,
                      f"{rect.x0:.2f}|{rect.y0:.2f}|box|{box.x0:.2f}|{box.y0:.2f}|{box.x1:.2f}|{box.y1:.2f}"
@@ -399,7 +400,7 @@ def text_style(doc: pymupdf.Document, pno: int, xref: int) -> dict:
     page = _page(doc, pno)  # 쪽을 잡아 두어야 주석 객체가 살아 있음
     a = _own_annot(page, xref)
     if a.type[0] != pymupdf.PDF_ANNOT_FREE_TEXT:
-        raise DocOpError("글자 상자가 아닙니다.")
+        raise DocOpError(tr("글자 상자가 아닙니다."))
     kind, raw = doc.xref_get_key(xref, STYLE_KEY)
     try:
         parts = (raw.strip("()") if kind == "string" else raw).split("|")
@@ -499,10 +500,10 @@ def delete_in_rect(doc: pymupdf.Document, pno: int, rect) -> int:
     page = _page(doc, pno)
     rect = pymupdf.Rect(rect).normalize()
     if rect.width < MIN_DRAG and rect.height < MIN_DRAG:
-        raise DocOpError("지울 곳을 마우스로 끌어서 골라 주세요.")
+        raise DocOpError(tr("지울 곳을 마우스로 끌어서 골라 주세요."))
     xrefs = own_in_rect(doc, pno, rect)
     if not xrefs:
-        raise DocOpError("끈 곳에 지울 형광펜·메모·글자·상자가 없습니다.")
+        raise DocOpError(tr("끈 곳에 지울 형광펜·메모·글자·상자가 없습니다."))
     for x in xrefs:
         page.delete_annot(_own_annot(page, x))
     return len(xrefs)
@@ -516,17 +517,17 @@ def _rgb(hexv: str | None):
     if hexv is None:
         return None
     if not isinstance(hexv, str) or not _COLOR_RE.match(hexv):
-        raise DocOpError(f"모르는 색입니다: {hexv}")
+        raise DocOpError(tr("모르는 색입니다: {hexv}").format(hexv=hexv))
     return tuple(int(hexv[i:i + 2], 16) / 255 for i in (1, 3, 5))
 
 
 def _style_box(annot, line: str | None, fill: str | None, width: float, opacity: float) -> None:
     if line is None and fill is None:
-        raise DocOpError("선 색과 채우기 색이 둘 다 '없음'이면 상자가 보이지 않습니다.")
+        raise DocOpError(tr("선 색과 채우기 색이 둘 다 '없음'이면 상자가 보이지 않습니다."))
     if width not in SHAPE_WIDTHS:
-        raise DocOpError(f"모르는 선 굵기입니다: {width}")
+        raise DocOpError(tr("모르는 선 굵기입니다: {width}").format(width=width))
     if not 0.1 <= opacity <= 1:
-        raise DocOpError("투명도는 10~100% 사이로 골라 주세요.")
+        raise DocOpError(tr("투명도는 10~100% 사이로 골라 주세요."))
     annot.set_colors(stroke=_rgb(line) or [], fill=_rgb(fill) or [])
     annot.set_border(width=width if line is not None else 0)
     annot.set_opacity(opacity)
@@ -540,7 +541,7 @@ def add_box(doc: pymupdf.Document, pno: int, rect, line: str | None = "#d00000",
     page = _page(doc, pno)
     rect = pymupdf.Rect(rect).normalize() & _bounds(page)
     if rect.is_empty or rect.width < MIN_DRAG or rect.height < MIN_DRAG:
-        raise DocOpError("상자를 그릴 곳을 마우스로 끌어서 정해 주세요.")
+        raise DocOpError(tr("상자를 그릴 곳을 마우스로 끌어서 정해 주세요."))
     annot = page.add_rect_annot(rect)
     annot.set_info(title=AUTHOR, subject=MARK)
     _style_box(annot, line, fill, width, opacity)
@@ -553,5 +554,5 @@ def set_box_style(doc: pymupdf.Document, pno: int, xref: int, line: str | None, 
     page = _page(doc, pno)
     a = _own_annot(page, xref)
     if a.type[0] != pymupdf.PDF_ANNOT_SQUARE:
-        raise DocOpError("상자가 아닙니다.")
+        raise DocOpError(tr("상자가 아닙니다."))
     _style_box(a, line, fill, width, opacity)

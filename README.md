@@ -6,11 +6,22 @@
 - 형광펜·메모·글자 상자·네모 상자, 지우개, 인쇄
 - 표 칸 단위로 끌어 고르기·복사(등기부·건축물대장 같은 표)
 - **글자 인식**(도구 > 글자 인식, Ctrl+Shift+O): 세움터 건축물대장처럼 글자가 그림으로 된 쪽을
-  윈도우 내장 한국어 인식으로 읽어 고르기·복사·찾기가 되게 합니다. 인식은 PC 안에서만 합니다.
+  윈도우 내장 인식(한국어 우선, 없으면 윈도우 사용자 언어)으로 읽어 고르기·복사·찾기가 되게 합니다.
+  인식은 PC 안에서만 합니다.
   인식한 숫자·지번은 틀릴 수 있으니 원문과 대조해 주세요.
 - 자료 폴더 목록(보기 > 자료 폴더): 건물 폴더별 PDF를 최신 rev 순으로 보고, 두 판을 나란히 비교
 
+- 화면 언어: 한국어·영어. 윈도우 표시 언어를 따르고, 도움말 > Language에서 바꿀 수 있습니다(다시 켜면 적용).
+
 만든 곳: [부빅터](https://www.bubigter.com)
+
+## English
+
+HanjangPDF is a PDF viewer for Windows: view and search, reorder/insert/rotate/export pages,
+highlights, notes, text boxes and rectangles, table-cell text selection, and on-device text recognition
+(OCR) for scanned pages using the built-in Windows OCR. The interface is available in Korean and English
+(it follows the Windows display language; change it under Help > Language). Nothing leaves your PC.
+Licensed under the GNU AGPL v3.
 
 ## 개인정보
 

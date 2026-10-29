@@ -8,6 +8,7 @@ import pymupdf
 
 from . import doc_ops
 from .doc_ops import DocOpError
+from ..i18n import tr
 
 UNDO_LIMIT = 20
 UNDO_BYTES = 400 * 1024 * 1024  # 되돌리기·다시 하기 사본을 합친 크기 한도(큰 스캔 PDF에서 메모리 폭주 방지)
@@ -85,7 +86,7 @@ class Document:
             self._restore(before)
             if isinstance(e, DocOpError):
                 raise
-            raise DocOpError(f"편집하지 못했습니다: {e}") from e
+            raise DocOpError(tr("편집하지 못했습니다: {e}").format(e=e)) from e
         self._undo.append((before, self._state))
         self._redo.clear()
         self._state = next(self._ids)
@@ -130,13 +131,13 @@ class Document:
 
     def export_pages(self, indices, out_path: str) -> int:
         if same_file(out_path, self.path):
-            raise DocOpError("지금 열린 원본 파일 이름으로는 내보낼 수 없습니다. 다른 이름을 골라 주세요.")
+            raise DocOpError(tr("지금 열린 원본 파일 이름으로는 내보낼 수 없습니다. 다른 이름을 골라 주세요."))
         try:
             return doc_ops.export_pages(self.doc, indices, out_path)
         except DocOpError:
             raise
         except Exception as e:
-            raise DocOpError(f"내보내지 못했습니다: {e}") from e
+            raise DocOpError(tr("내보내지 못했습니다: {e}").format(e=e)) from e
 
     def close(self) -> None:
         self.doc.close()

@@ -6,6 +6,7 @@ from PySide6.QtWidgets import QCheckBox, QHBoxLayout, QLabel, QSplitter, QVBoxLa
 
 from ..core.document import Document
 from .page_view import PageView
+from ..i18n import tr
 
 
 class CompareTab(QWidget):
@@ -18,11 +19,11 @@ class CompareTab(QWidget):
         top.setContentsMargins(6, 4, 6, 4)
         self.labels = []
         for d in self.docs:
-            lab = QLabel(f"{d.name}  ({d.page_count}쪽)")
+            lab = QLabel(tr("{name}  ({page_count}쪽)").format(name=d.name, page_count=d.page_count))
             lab.setToolTip(d.path)
             lab.setStyleSheet("font-weight: bold;")
             self.labels.append(lab)
-        self.sync = QCheckBox("같이 넘기기")
+        self.sync = QCheckBox(tr("같이 넘기기"))
         self.sync.setChecked(True)
         top.addWidget(self.labels[0], 1)
         top.addWidget(self.sync)
@@ -48,7 +49,7 @@ class CompareTab(QWidget):
 
     @property
     def title(self) -> str:
-        return f"비교: {self.docs[0].name} ↔ {self.docs[1].name}"
+        return tr("비교: {name} ↔ {name2}").format(name=self.docs[0].name, name2=self.docs[1].name)
 
     def _follow(self, other: int, n: int) -> None:
         if self._syncing or not self.sync.isChecked():

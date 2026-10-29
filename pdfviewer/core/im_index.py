@@ -8,6 +8,7 @@ from __future__ import annotations
 import os
 import re
 import string
+from ..i18n import tr
 
 REV_RE = re.compile(r"rev\s*(\d+)", re.IGNORECASE)
 # 드라이브 안에서 자료 폴더가 있을 만한 자리(앞에 있는 것이 먼저)
@@ -75,7 +76,7 @@ def scan(root: str) -> list[dict]:
         elif e.name.lower().endswith(".pdf"):
             loose.append(e)
     if loose:
-        groups.append({"name": "(폴더 밖)", "path": root, "docs": _pdfs(root, only=loose)})
+        groups.append({"name": tr("(폴더 밖)"), "path": root, "docs": _pdfs(root, only=loose)})
     return groups
 
 

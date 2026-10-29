@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
 
 from ..core.annots import BOX_LEAD, TEXT_MAX, TEXT_MIN, box_min_width, box_need_height
 from .text_dialog import ALIGN_LABELS, PRESET_COLORS, last_style
+from ..i18n import tr
 
 _QT_ALIGN = {"left": Qt.AlignmentFlag.AlignLeft, "center": Qt.AlignmentFlag.AlignHCenter,
              "right": Qt.AlignmentFlag.AlignRight}
@@ -96,7 +97,7 @@ class TextBoxEditor(QObject):
         self._styled = None  # 줄 높이를 마지막으로 맞춘 (크기, 배율)
         self.edit.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.edit.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.edit.setPlaceholderText("여기에 글자를 쓰세요 (Ctrl+Enter: 넣기, Esc: 취소)")
+        self.edit.setPlaceholderText(tr("여기에 글자를 쓰세요 (Ctrl+Enter: 넣기, Esc: 취소)"))
         self.edit.setPlainText(text)
         self.edit.submit.connect(self.commit)
         self.edit.cancel.connect(self.cancel)
@@ -118,18 +119,18 @@ class TextBoxEditor(QObject):
             self.align.addItem(label, key)
         self.align.setCurrentIndex([k for k, _ in ALIGN_LABELS].index(align or last_style["align"]))
         self.align.currentIndexChanged.connect(self._restyle)
-        self.color_btn = QToolButton(text="색")
+        self.color_btn = QToolButton(text=tr("색"))
         self.color_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         menu = QMenu(self.color_btn)
         menu.setStyleSheet(_BAR_STYLE)
         for hexv, label in PRESET_COLORS:
             menu.addAction(label).triggered.connect(lambda _=False, h=hexv: self.set_color(h))
         menu.addSeparator()
-        menu.addAction("다른 색…").triggered.connect(self._pick_color)
+        menu.addAction(tr("다른 색…")).triggered.connect(self._pick_color)
         self.color_btn.setMenu(menu)
-        self.ok = QPushButton("넣기")
+        self.ok = QPushButton(tr("넣기"))
         self.ok.clicked.connect(self.commit)
-        self.no = QPushButton("취소")
+        self.no = QPushButton(tr("취소"))
         self.no.clicked.connect(self.cancel)
         for w in (self.size, self.align, self.color_btn, self.ok, self.no):
             lay.addWidget(w)
@@ -142,7 +143,7 @@ class TextBoxEditor(QObject):
         self._restyle()
 
     def _pick_color(self) -> None:
-        c = QColorDialog.getColor(QColor(self.color), self.host, "글자 색")
+        c = QColorDialog.getColor(QColor(self.color), self.host, tr("글자 색"))
         if c.isValid():
             self.set_color(c.name())
 

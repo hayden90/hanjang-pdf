@@ -17,18 +17,20 @@ from .doc_tab import DocTab, ask_password
 from .im_panel import ImPanel
 from .page_view import select_hint
 from .thumbs import pdf_paths_from_mime
+from .. import i18n
+from ..i18n import tr
 
-APP_NAME = "한장PDF"
-APP_VERSION = "rev12"
+APP_NAME = tr("한장PDF")
+APP_VERSION = "rev13"
 SOURCE_URL = "https://github.com/hayden90/hanjang-pdf"  # AGPL: 받은 사람이 소스를 받을 수 있는 곳
 BUBIGTER_URL = "https://www.bubigter.com/?utm_source=hanjangpdf&utm_medium=app"
 ABOUT_TEXT = (
-    f"<b>{APP_NAME}</b> {APP_VERSION}<br>서류를 보기 좋게 만든 PDF 뷰어<br><br>"
-    "이 프로그램은 자유 소프트웨어입니다. GNU AGPL v3 조건으로 다시 배포하거나 고칠 수 있으며,"
-    " 어떤 보증도 하지 않습니다.<br>"
-    f"소스 코드: <a href=\"{SOURCE_URL}\">{SOURCE_URL}</a><br><br>"
-    "쓰는 부품: PyMuPDF·MuPDF(AGPL v3, Artifex), Qt·PySide6(LGPL v3), pywinrt(MIT)<br>"
-    "문서 내용은 PC 밖으로 보내지 않습니다(글자 인식도 윈도우 안에서만)."
+    f"<b>{APP_NAME}</b> {APP_VERSION}<br>" + tr("서류를 보기 좋게 만든 PDF 뷰어") + "<br><br>"
+    + tr("이 프로그램은 자유 소프트웨어입니다. GNU AGPL v3 조건으로 다시 배포하거나 고칠 수 있으며,"
+         " 어떤 보증도 하지 않습니다.") + "<br>"
+    + tr("소스 코드") + f": <a href=\"{SOURCE_URL}\">{SOURCE_URL}</a><br><br>"
+    + tr("쓰는 부품: PyMuPDF·MuPDF(AGPL v3, Artifex), Qt·PySide6(LGPL v3), pywinrt(MIT)") + "<br>"
+    + tr("문서 내용은 PC 밖으로 보내지 않습니다(글자 인식도 윈도우 안에서만).")
 )
 
 
@@ -63,8 +65,16 @@ class MainWindow(QMainWindow):
         self.statusBar().addPermanentWidget(self.zoom_label)
         self._show_empty_hint()
 
+    def choose_lang(self, lang: str):
+        """고른 언어를 저장한다. 화면은 다시 켤 때 바뀐다."""
+        i18n.save_lang(lang, self.settings)
+        if lang != i18n.LANG:
+            QMessageBox.information(self, "Language / 언어",
+                                    "다시 시작하면 한국어로 바뀝니다." if lang == "ko"
+                                    else "Restart the program to switch to English.")
+
     def show_about(self):
-        QMessageBox.about(self, f"{APP_NAME} 정보", ABOUT_TEXT)
+        QMessageBox.about(self, tr("{APP_NAME} 정보").format(APP_NAME=APP_NAME), ABOUT_TEXT)
 
     # ── 메뉴·단추 ──
     def _act(self, text, slot, shortcut=None, tip=None):
@@ -84,38 +94,38 @@ class MainWindow(QMainWindow):
 
     def _build_actions(self):
         A = self._act
-        self.a_open = A("열기", self.open_dialog, QKeySequence.StandardKey.Open)
-        self.a_save = A("저장", self._tab_call("save"), "Ctrl+S", "지금 파일 이름 그대로 저장 (Ctrl+S)")
-        self.a_save_as = A("다른 이름으로 저장", self._tab_call("save_as"), "Ctrl+Shift+S")
-        self.a_print = A("인쇄…", self._tab_call("print_doc"), "Ctrl+P", "인쇄 (Ctrl+P). 형광펜·메모·글자 상자도 함께 찍힘")
-        self.a_close = A("탭 닫기", lambda: self.close_tab(self.tabs.currentIndex()), "Ctrl+W")
-        self.a_quit = A("끝내기", self.close, "Ctrl+Q")
-        self.a_undo = A("되돌리기", self._tab_call("undo"), "Ctrl+Z", "방금 한 편집 되돌리기 (Ctrl+Z)")
-        self.a_redo = A("다시 하기", self._tab_call("redo"), ["Ctrl+Y", "Ctrl+Shift+Z"],
-                        "되돌린 편집 다시 하기 (Ctrl+Y)")
-        self.a_copy = A("글자 복사", self._copy_text, "Ctrl+C", "보기 모드에서 쪽 위를 끌어 고른 글자 복사 (Ctrl+C)")
-        self.a_export = A("고른 쪽 내보내기…", self._tab_call("export_selected"), "Ctrl+E")
-        self.a_insert = A("현재 쪽 뒤에 PDF 넣기…", self._insert_after_current, "Ctrl+I")
-        self.a_delete = A("고른 쪽 지우기", lambda: self._on_pages("delete_pages"))
-        self.a_rot_l = A("↺ 반시계 90°", lambda: self._on_pages("rotate", -90), "Ctrl+L",
-                         "고른 쪽(없으면 지금 쪽)을 반시계 방향으로 90° 돌리기 (Ctrl+L)")
-        self.a_rot_r = A("↻ 시계 90°", lambda: self._on_pages("rotate", 90), "Ctrl+R",
-                         "고른 쪽(없으면 지금 쪽)을 시계 방향으로 90° 돌리기 (Ctrl+R)")
-        self.a_find = A("찾기", self._tab_call("show_search"), QKeySequence.StandardKey.Find)
-        self.a_zoom_in = A("확대", self._view_call("zoom_in"), ["Ctrl+=", "Ctrl++"])
-        self.a_zoom_out = A("축소", self._view_call("zoom_out"), "Ctrl+-")
-        self.a_fit_w = A("폭 맞춤", self._view_call("fit", "width"), "Ctrl+1")
-        self.a_fit_p = A("쪽 맞춤", self._view_call("fit", "page"), "Ctrl+0")
+        self.a_open = A(tr("열기"), self.open_dialog, QKeySequence.StandardKey.Open)
+        self.a_save = A(tr("저장"), self._tab_call("save"), "Ctrl+S", tr("지금 파일 이름 그대로 저장 (Ctrl+S)"))
+        self.a_save_as = A(tr("다른 이름으로 저장"), self._tab_call("save_as"), "Ctrl+Shift+S")
+        self.a_print = A(tr("인쇄…"), self._tab_call("print_doc"), "Ctrl+P", tr("인쇄 (Ctrl+P). 형광펜·메모·글자 상자도 함께 찍힘"))
+        self.a_close = A(tr("탭 닫기"), lambda: self.close_tab(self.tabs.currentIndex()), "Ctrl+W")
+        self.a_quit = A(tr("끝내기"), self.close, "Ctrl+Q")
+        self.a_undo = A(tr("되돌리기"), self._tab_call("undo"), "Ctrl+Z", tr("방금 한 편집 되돌리기 (Ctrl+Z)"))
+        self.a_redo = A(tr("다시 하기"), self._tab_call("redo"), ["Ctrl+Y", "Ctrl+Shift+Z"],
+                        tr("되돌린 편집 다시 하기 (Ctrl+Y)"))
+        self.a_copy = A(tr("글자 복사"), self._copy_text, "Ctrl+C", tr("보기 모드에서 쪽 위를 끌어 고른 글자 복사 (Ctrl+C)"))
+        self.a_export = A(tr("고른 쪽 내보내기…"), self._tab_call("export_selected"), "Ctrl+E")
+        self.a_insert = A(tr("현재 쪽 뒤에 PDF 넣기…"), self._insert_after_current, "Ctrl+I")
+        self.a_delete = A(tr("고른 쪽 지우기"), lambda: self._on_pages("delete_pages"))
+        self.a_rot_l = A(tr("↺ 반시계 90°"), lambda: self._on_pages("rotate", -90), "Ctrl+L",
+                         tr("고른 쪽(없으면 지금 쪽)을 반시계 방향으로 90° 돌리기 (Ctrl+L)"))
+        self.a_rot_r = A(tr("↻ 시계 90°"), lambda: self._on_pages("rotate", 90), "Ctrl+R",
+                         tr("고른 쪽(없으면 지금 쪽)을 시계 방향으로 90° 돌리기 (Ctrl+R)"))
+        self.a_find = A(tr("찾기"), self._tab_call("show_search"), QKeySequence.StandardKey.Find)
+        self.a_zoom_in = A(tr("확대"), self._view_call("zoom_in"), ["Ctrl+=", "Ctrl++"])
+        self.a_zoom_out = A(tr("축소"), self._view_call("zoom_out"), "Ctrl+-")
+        self.a_fit_w = A(tr("폭 맞춤"), self._view_call("fit", "width"), "Ctrl+1")
+        self.a_fit_p = A(tr("쪽 맞춤"), self._view_call("fit", "page"), "Ctrl+0")
         # 도구 모드: 한 번에 하나만(보기·형광펜·메모·글자·상자·지우개). Esc는 언제나 보기로
         self.mode_group = QActionGroup(self)
         self.a_mode = {}
         for key, label, sc, tip in [
-            ("view", "보기", "Esc", "보기 모드(Esc). 쪽 위를 끌면 글자 고르기(Ctrl+C 복사), 메모 위에 올리면 내용, 두 번 누르면 고치기"),
-            ("highlight", "형광펜", "Ctrl+H", "글자 위를 끌어서 칠하기(Ctrl+H). 색은 옆 ▾"),
-            ("note", "메모", "Ctrl+M", "쪽을 눌러 메모 붙이기(Ctrl+M)"),
-            ("text", "글자", "Ctrl+T", "쪽 위를 끌어 글자 상자를 그리고 그 안에 바로 쓰기(Ctrl+T). 그냥 누르면 기본 폭 상자. 크기·정렬·색은 상자 위 막대에서, 인쇄에도 나옴. 넣은 글자를 누르면 고치기"),
-            ("box", "상자", "Ctrl+Shift+R", "쪽 위를 끌어 네모 상자 그리기(Ctrl+Shift+R). 선·채우기 색은 옆 ▾, 그린 상자를 누르면 지금 색으로 바뀜"),
-            ("erase", "지우개", "Ctrl+Shift+E", "형광펜·메모·글자·상자를 눌러 지우거나, 끌어서 그 범위를 한꺼번에 지우기(Ctrl+Shift+E)"),
+            ("view", tr("보기"), "Esc", tr("보기 모드(Esc). 쪽 위를 끌면 글자 고르기(Ctrl+C 복사), 메모 위에 올리면 내용, 두 번 누르면 고치기")),
+            ("highlight", tr("형광펜"), "Ctrl+H", tr("글자 위를 끌어서 칠하기(Ctrl+H). 색은 옆 ▾")),
+            ("note", tr("메모"), "Ctrl+M", tr("쪽을 눌러 메모 붙이기(Ctrl+M)")),
+            ("text", tr("글자"), "Ctrl+T", tr("쪽 위를 끌어 글자 상자를 그리고 그 안에 바로 쓰기(Ctrl+T). 그냥 누르면 기본 폭 상자. 크기·정렬·색은 상자 위 막대에서, 인쇄에도 나옴. 넣은 글자를 누르면 고치기")),
+            ("box", tr("상자"), "Ctrl+Shift+R", tr("쪽 위를 끌어 네모 상자 그리기(Ctrl+Shift+R). 선·채우기 색은 옆 ▾, 그린 상자를 누르면 지금 색으로 바뀜")),
+            ("erase", tr("지우개"), "Ctrl+Shift+E", tr("형광펜·메모·글자·상자를 눌러 지우거나, 끌어서 그 범위를 한꺼번에 지우기(Ctrl+Shift+E)")),
         ]:
             a = A(label, lambda _=False, k=key: self.set_mode(k), sc, tip)
             a.setCheckable(True)
@@ -123,9 +133,9 @@ class MainWindow(QMainWindow):
             self.a_mode[key] = a
         self.a_mode["view"].setChecked(True)
         self.hl_color = "yellow"
-        self.color_menu = QMenu("형광펜 색", self)
+        self.color_menu = QMenu(tr("형광펜 색"), self)
         color_group = QActionGroup(self)
-        for key, label in [("yellow", "노랑"), ("green", "초록"), ("pink", "분홍")]:
+        for key, label in [("yellow", tr("노랑")), ("green", tr("초록")), ("pink", tr("분홍"))]:
             a = self.color_menu.addAction(label)
             a.setCheckable(True)
             a.setChecked(key == "yellow")
@@ -133,20 +143,20 @@ class MainWindow(QMainWindow):
             a.triggered.connect(lambda _=False, k=key: self.set_hl_color(k))
         self.box_style = {"line": "#d00000", "fill": None, "width": 2, "opacity": 1.0}
         self.box_menu = self._build_box_menu()
-        self.a_ocr = A("글자 인식", self._tab_call("recognize_text"), "Ctrl+Shift+O",
-                       "글자가 그림으로 된 쪽(세움터 건축물대장·스캔)을 읽어 고르기·복사·찾기가 되게 함(Ctrl+Shift+O)."
-                       " 윈도우 내장 인식, PC 밖으로 안 보냄. 숫자·지번은 원문과 대조")
-        self.a_prev = A("◀ 이전 쪽", self._view_call("prev_page"))
-        self.a_next = A("다음 쪽 ▶", self._view_call("next_page"))
+        self.a_ocr = A(tr("글자 인식"), self._tab_call("recognize_text"), "Ctrl+Shift+O",
+                       tr("글자가 그림으로 된 쪽(세움터 건축물대장·스캔)을 읽어 고르기·복사·찾기가 되게 함(Ctrl+Shift+O)."
+                       " 윈도우 내장 인식, PC 밖으로 안 보냄. 숫자·지번은 원문과 대조"))
+        self.a_prev = A(tr("◀ 이전 쪽"), self._view_call("prev_page"))
+        self.a_next = A(tr("다음 쪽 ▶"), self._view_call("next_page"))
 
         mb = self.menuBar()
-        m = mb.addMenu("파일")
+        m = mb.addMenu(tr("파일"))
         for a in (self.a_open, None, self.a_save, self.a_save_as, self.a_export, None, self.a_print, None, self.a_close, self.a_quit):
             m.addSeparator() if a is None else m.addAction(a)
-        m = mb.addMenu("편집")
+        m = mb.addMenu(tr("편집"))
         for a in (self.a_undo, self.a_redo, None, self.a_copy, None, self.a_insert, self.a_export, self.a_delete, self.a_rot_r, self.a_rot_l, None, self.a_find):
             m.addSeparator() if a is None else m.addAction(a)
-        m = mb.addMenu("도구")
+        m = mb.addMenu(tr("도구"))
         for k in ("view", "highlight", "note", "text", "box", "erase"):
             m.addAction(self.a_mode[k])
         m.addMenu(self.color_menu)
@@ -154,21 +164,32 @@ class MainWindow(QMainWindow):
         m.addSeparator()
         m.addAction(self.a_ocr)
         self.a_im = self.im_panel.toggleViewAction()
-        self.a_im.setText("자료 폴더")
+        self.a_im.setText(tr("자료 폴더"))
         self.a_im.setShortcut(QKeySequence("Ctrl+B"))
-        self.a_im.setToolTip("브리핑·매각자료 폴더 목록 보이기/숨기기(Ctrl+B). 두 판 비교도 여기서")
-        m = mb.addMenu("보기")
+        self.a_im.setToolTip(tr("브리핑·매각자료 폴더 목록 보이기/숨기기(Ctrl+B). 두 판 비교도 여기서"))
+        m = mb.addMenu(tr("보기"))
         m.addAction(self.a_im)
         for a in (self.a_zoom_in, self.a_zoom_out, self.a_fit_w, self.a_fit_p, None, self.a_prev, self.a_next):
             m.addSeparator() if a is None else m.addAction(a)
-        self.a_bubigter = A("부빅터에서 건물·실거래 정보 보기", lambda: open_url(BUBIGTER_URL), tip="부빅터 웹사이트를 브라우저로 엽니다")
-        self.a_source = A("소스 코드", lambda: open_url(SOURCE_URL), tip="한장PDF 소스 코드(GitHub)를 브라우저로 엽니다")
-        self.a_about = A(f"{APP_NAME} 정보", self.show_about)
-        m = mb.addMenu("도움말")
+        self.a_bubigter = A(tr("부빅터에서 건물·실거래 정보 보기"), lambda: open_url(BUBIGTER_URL), tip=tr("부빅터 웹사이트를 브라우저로 엽니다"))
+        self.a_source = A(tr("소스 코드"), lambda: open_url(SOURCE_URL), tip=tr("한장PDF 소스 코드(GitHub)를 브라우저로 엽니다"))
+        self.a_about = A(tr("{APP_NAME} 정보").format(APP_NAME=APP_NAME), self.show_about)
+        m = mb.addMenu(tr("도움말"))
         for a in (self.a_bubigter, None, self.a_source, self.a_about):
             m.addSeparator() if a is None else m.addAction(a)
+        m.addSeparator()
+        lang_menu = m.addMenu("Language / 언어")  # 어느 언어로 보든 찾을 수 있게 두 말로 적는다
+        lang_group = QActionGroup(self)
+        self.a_lang = {}
+        for code, label in (("ko", "한국어"), ("en", "English")):
+            a = lang_menu.addAction(label)
+            a.setCheckable(True)
+            a.setChecked(code == i18n.LANG)
+            lang_group.addAction(a)
+            a.triggered.connect(lambda _=False, c=code: self.choose_lang(c))
+            self.a_lang[code] = a
 
-        tb = QToolBar("도구")
+        tb = QToolBar(tr("도구"))
         tb.setMovable(False)
         tb.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
         for a in (self.a_open, self.a_save, self.a_save_as, self.a_print, self.a_undo, self.a_redo, None, self.a_prev):
@@ -180,7 +201,7 @@ class MainWindow(QMainWindow):
             tb.addSeparator() if a is None else tb.addAction(a)
         self.addToolBar(tb)
         # 둘째 줄: 형광펜·메모 도구(첫 줄이 길어 따로 둠)
-        tb2 = QToolBar("주석")
+        tb2 = QToolBar(tr("주석"))
         tb2.setMovable(False)
         tb2.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
         tb2.addAction(self.a_im)
@@ -202,22 +223,22 @@ class MainWindow(QMainWindow):
         t = self.tab()
         if t is not None:
             t.view.set_mode(mode)
-        hints = {"view": "", "highlight": "형광펜: 칠할 글자 위를 끌어 주세요. Esc로 끝",
-                 "note": "메모: 붙일 자리를 눌러 주세요. Esc로 끝",
-                 "text": "글자: 넣을 자리를 끌어 상자를 그리고 바로 쓰세요(Ctrl+Enter 넣기). 넣은 글자를 누르면 고치기",
-                 "box": "상자: 쪽 위를 끌어 그리세요. 색은 '상자' 옆 ▾. 그린 상자를 누르면 지금 색으로 바뀜",
-                 "erase": "지우개: 지울 것을 누르거나, 끌어서 범위를 한꺼번에 지우세요. Esc로 끝"}
+        hints = {"view": "", "highlight": tr("형광펜: 칠할 글자 위를 끌어 주세요. Esc로 끝"),
+                 "note": tr("메모: 붙일 자리를 눌러 주세요. Esc로 끝"),
+                 "text": tr("글자: 넣을 자리를 끌어 상자를 그리고 바로 쓰세요(Ctrl+Enter 넣기). 넣은 글자를 누르면 고치기"),
+                 "box": tr("상자: 쪽 위를 끌어 그리세요. 색은 '상자' 옆 ▾. 그린 상자를 누르면 지금 색으로 바뀜"),
+                 "erase": tr("지우개: 지울 것을 누르거나, 끌어서 범위를 한꺼번에 지우세요. Esc로 끝")}
         self.statusBar().showMessage(hints.get(mode, ""))
 
     # ── 상자 색 ──
     def _build_box_menu(self) -> QMenu:
-        menu = QMenu("상자 색", self)
-        presets = [("#000000", "검정"), ("#d00000", "빨강"), ("#0050c8", "파랑"), ("#138a36", "초록"), ("#e8590c", "주황")]
-        fills = [("#fff3a0", "노랑"), ("#cdeccd", "연두"), ("#cfe3ff", "하늘"), ("#ffd6e7", "분홍"),
-                 ("#e6e6e6", "회색"), ("#ffffff", "흰색")] + presets
+        menu = QMenu(tr("상자 색"), self)
+        presets = [("#000000", tr("검정")), ("#d00000", tr("빨강")), ("#0050c8", tr("파랑")), ("#138a36", tr("초록")), ("#e8590c", tr("주황"))]
+        fills = [("#fff3a0", tr("노랑")), ("#cdeccd", tr("연두")), ("#cfe3ff", tr("하늘")), ("#ffd6e7", tr("분홍")),
+                 ("#e6e6e6", tr("회색")), ("#ffffff", tr("흰색"))] + presets
         self.box_actions = {}
-        for key, title, items in (("line", "선 색", [(None, "없음")] + presets),
-                                  ("fill", "채우기 색", [(None, "없음")] + fills)):
+        for key, title, items in (("line", tr("선 색"), [(None, tr("없음"))] + presets),
+                                  ("fill", tr("채우기 색"), [(None, tr("없음"))] + fills)):
             sub = menu.addMenu(title)
             group = QActionGroup(self)
             for hexv, label in items:
@@ -228,10 +249,10 @@ class MainWindow(QMainWindow):
                 a.triggered.connect(lambda _=False, k=key, h=hexv: self.set_box_style(**{k: h}))
                 self.box_actions[(key, hexv)] = a
             sub.addSeparator()
-            sub.addAction("다른 색…").triggered.connect(lambda _=False, k=key, g=group: self._pick_box_color(k, g))
-        for key, title, items in (("width", "선 굵기", [(w, f"{w:g} pt") for w in (0.5, 1, 2, 3, 5)]),
-                                  ("opacity", "진하기", [(1.0, "100% (안 비침)"), (0.7, "70%"), (0.5, "50%"),
-                                                        (0.3, "30% (아래 글자가 잘 보임)")])):
+            sub.addAction(tr("다른 색…")).triggered.connect(lambda _=False, k=key, g=group: self._pick_box_color(k, g))
+        for key, title, items in (("width", tr("선 굵기"), [(w, f"{w:g} pt") for w in (0.5, 1, 2, 3, 5)]),
+                                  ("opacity", tr("진하기"), [(1.0, tr("100% (안 비침)")), (0.7, "70%"), (0.5, "50%"),
+                                                        (0.3, tr("30% (아래 글자가 잘 보임)"))])):
             sub = menu.addMenu(title)
             group = QActionGroup(self)
             for v, label in items:
@@ -244,7 +265,7 @@ class MainWindow(QMainWindow):
 
     def _pick_box_color(self, key: str, group: QActionGroup):
         cur = self.box_style[key] or "#000000"
-        c = QColorDialog.getColor(QColor(cur), self, "선 색" if key == "line" else "채우기 색")
+        c = QColorDialog.getColor(QColor(cur), self, tr("선 색") if key == "line" else tr("채우기 색"))
         if c.isValid():
             for a in group.actions():
                 a.setChecked(False)
@@ -258,7 +279,9 @@ class MainWindow(QMainWindow):
         self.set_mode("box")
         st = self.box_style
         self.statusBar().showMessage(
-            f"상자: 선 {st['line'] or '없음'} · 채우기 {st['fill'] or '없음'} · 굵기 {st['width']:g}pt · 진하기 {round(st['opacity'] * 100)}%")
+            tr("상자: 선 {line} · 채우기 {fill} · 굵기 {width:g}pt · 진하기 {opacity}%").format(
+                line=st['line'] or tr("없음"), fill=st['fill'] or tr("없음"), width=st['width'],
+                opacity=round(st['opacity'] * 100)))
 
     def set_hl_color(self, color: str):
         self.hl_color = color
@@ -277,11 +300,11 @@ class MainWindow(QMainWindow):
     def _copy_text(self):
         views = [v for v in self._views() if v.selection_seq]
         if not views:
-            self.statusBar().showMessage("보기 모드(Esc)에서 쪽 위를 마우스로 끌어 글자를 먼저 골라 주세요.", 4000)
+            self.statusBar().showMessage(tr("보기 모드(Esc)에서 쪽 위를 마우스로 끌어 글자를 먼저 골라 주세요."), 4000)
             return
         v = max(views, key=lambda v: v.selection_seq)  # 비교 탭: 마지막에 고른 쪽
         if v.copy_selection():
-            self.statusBar().showMessage(f"글자 {len(v.selected_text())}자를 복사했습니다.", 4000)
+            self.statusBar().showMessage(tr("글자 {n}자를 복사했습니다.").format(n=len(v.selected_text())), 4000)
 
     def _views(self) -> list:
         w = self.tabs.currentWidget()
@@ -324,7 +347,7 @@ class MainWindow(QMainWindow):
         return w if isinstance(w, DocTab) else None
 
     def _show_empty_hint(self):
-        self.statusBar().showMessage("PDF 파일을 이 창에 끌어다 놓거나 Ctrl+O로 여세요.")
+        self.statusBar().showMessage(tr("PDF 파일을 이 창에 끌어다 놓거나 Ctrl+O로 여세요."))
 
     def _sync(self):
         t = self.tab()
@@ -388,7 +411,7 @@ class MainWindow(QMainWindow):
         try:
             d = Document(path, pw)
         except (DocOpError, OSError) as e:
-            QMessageBox.warning(self, "열기", f"{os.path.basename(path)}\n{e}")
+            QMessageBox.warning(self, tr("열기"), f"{os.path.basename(path)}\n{e}")
             return
         t = DocTab(d)
         t.open_elsewhere = lambda p, me=t: any(
@@ -410,7 +433,7 @@ class MainWindow(QMainWindow):
         try:
             return Document(path, pw)
         except (DocOpError, OSError) as e:
-            QMessageBox.warning(self, "열기", f"{os.path.basename(path)}\n{e}")
+            QMessageBox.warning(self, tr("열기"), f"{os.path.basename(path)}\n{e}")
             return None
 
     def open_compare(self, left: str, right: str):
@@ -426,15 +449,15 @@ class MainWindow(QMainWindow):
             v.currentPageChanged.connect(lambda _: self._sync())
             v.zoomChanged.connect(lambda _: self._sync())
             v.textSelected.connect(lambda n: self.statusBar().showMessage(select_hint(n), 4000))
-        i = self.tabs.addTab(t, f"비교: {a.name} ↔ {b.name}")
+        i = self.tabs.addTab(t, tr("비교: {name} ↔ {name2}").format(name=a.name, name2=b.name))
         self.tabs.setTabToolTip(i, f"{a.path}\n{b.path}")
         self.tabs.setCurrentIndex(i)
-        self.statusBar().showMessage("두 판 비교(읽기 전용). '같이 넘기기'를 끄면 따로 넘길 수 있습니다.", 6000)
+        self.statusBar().showMessage(tr("두 판 비교(읽기 전용). '같이 넘기기'를 끄면 따로 넘길 수 있습니다."), 6000)
         self._sync()
 
     def open_dialog(self):
         start = self.settings.value("last_dir", os.path.expanduser("~"))
-        paths, _ = QFileDialog.getOpenFileNames(self, "PDF 열기", start, "PDF (*.pdf)")
+        paths, _ = QFileDialog.getOpenFileNames(self, tr("PDF 열기"), start, "PDF (*.pdf)")
         self.open_paths(paths)
 
     def _confirm_close(self, t: DocTab) -> bool:
@@ -446,7 +469,7 @@ class MainWindow(QMainWindow):
             return True
         self.tabs.setCurrentWidget(t)
         r = QMessageBox.question(
-            self, "저장", f"{t.d.name}에 저장하지 않은 편집이 있습니다. 저장할까요?",
+            self, tr("저장"), tr("{name}에 저장하지 않은 편집이 있습니다. 저장할까요?").format(name=t.d.name),
             QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel)
         if r == QMessageBox.StandardButton.Save:
             return t.save()

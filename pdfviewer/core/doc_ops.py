@@ -9,6 +9,7 @@ import os
 import tempfile
 
 import pymupdf
+from ..i18n import tr
 
 
 class DocOpError(Exception):
@@ -18,10 +19,10 @@ class DocOpError(Exception):
 def _check_indices(doc: pymupdf.Document, indices) -> list[int]:
     picked = sorted(set(indices))
     if not picked:
-        raise DocOpError("고른 쪽이 없습니다.")
+        raise DocOpError(tr("고른 쪽이 없습니다."))
     for i in picked:
         if not 0 <= i < doc.page_count:
-            raise DocOpError(f"없는 쪽 번호입니다: {i + 1}")
+            raise DocOpError(tr("없는 쪽 번호입니다: {i}").format(i=i + 1))
     return picked
 
 
@@ -30,11 +31,11 @@ def open_pdf_bytes(data: bytes, password: str | None = None) -> pymupdf.Document
     try:
         doc = pymupdf.open(stream=data, filetype="pdf")
     except Exception as e:  # 깨진 파일 등
-        raise DocOpError(f"PDF를 열 수 없습니다: {e}") from e
+        raise DocOpError(tr("PDF를 열 수 없습니다: {e}").format(e=e)) from e
     if doc.needs_pass:
         if not password or not doc.authenticate(password):
             doc.close()
-            raise DocOpError("암호가 필요하거나 암호가 맞지 않습니다.")
+            raise DocOpError(tr("암호가 필요하거나 암호가 맞지 않습니다."))
     return doc
 
 
@@ -60,7 +61,7 @@ def atomic_save(doc: pymupdf.Document, out_path: str) -> None:
                 os.remove(tmp)
             except OSError:
                 pass
-        raise DocOpError(f"저장하지 못했습니다: {e}") from e
+        raise DocOpError(tr("저장하지 못했습니다: {e}").format(e=e)) from e
 
 
 def needs_password(path: str) -> bool:
@@ -74,13 +75,13 @@ def needs_password(path: str) -> bool:
 def insert_pdf(doc: pymupdf.Document, src_path: str, at: int, password: str | None = None) -> int:
     """src_path의 모든 쪽을 at 위치(그 쪽 앞)에 넣고, 넣은 쪽 수를 돌려준다."""
     if not 0 <= at <= doc.page_count:
-        raise DocOpError(f"넣을 위치가 잘못되었습니다: {at + 1}")
+        raise DocOpError(tr("넣을 위치가 잘못되었습니다: {at}").format(at=at + 1))
     with open(src_path, "rb") as f:
         src = open_pdf_bytes(f.read(), password)
     try:
         n = src.page_count
         if n == 0:
-            raise DocOpError("넣을 PDF에 쪽이 없습니다.")
+            raise DocOpError(tr("넣을 PDF에 쪽이 없습니다."))
         doc.insert_pdf(src, start_at=at)
         return n
     finally:
@@ -103,14 +104,14 @@ def export_pages(doc: pymupdf.Document, indices, out_path: str) -> int:
 def delete_pages(doc: pymupdf.Document, indices) -> int:
     picked = _check_indices(doc, indices)
     if len(picked) >= doc.page_count:
-        raise DocOpError("모든 쪽을 지울 수는 없습니다. 한 쪽 이상 남겨 주세요.")
+        raise DocOpError(tr("모든 쪽을 지울 수는 없습니다. 한 쪽 이상 남겨 주세요."))
     doc.delete_pages(picked)
     return len(picked)
 
 
 def rotate_pages(doc: pymupdf.Document, indices, degrees: int) -> None:
     if degrees % 90:
-        raise DocOpError("회전은 90도 단위만 됩니다.")
+        raise DocOpError(tr("회전은 90도 단위만 됩니다."))
     for i in _check_indices(doc, indices):
         page = doc[i]
         page.set_rotation((page.rotation + degrees) % 360)
@@ -136,7 +137,7 @@ def move_pages(doc: pymupdf.Document, indices, to: int) -> int:
 def move_order(count: int, picked: list[int], to: int) -> tuple[list[int], int]:
     """옮긴 뒤의 쪽 순서와, 옮긴 묶음의 첫 쪽이 놓일 번호를 돌려준다."""
     if not 0 <= to <= count:
-        raise DocOpError(f"옮길 위치가 잘못되었습니다: {to + 1}")
+        raise DocOpError(tr("옮길 위치가 잘못되었습니다: {to}").format(to=to + 1))
     rest = [i for i in range(count) if i not in set(picked)]
     pos = sum(1 for i in rest if i < to)
     return rest[:pos] + picked + rest[pos:], pos

@@ -14,6 +14,7 @@ from typing import Callable
 import pymupdf
 
 from .doc_ops import DocOpError
+from ..i18n import tr
 
 OCR_DPI = 300  # 7~9pt 글자에서 가장 정확했던 해상도(메인컴 합성 문서 98~99%)
 MAX_PIXELS = 9000  # 윈도우 글자 인식이 받는 그림 한 변 한도(10000)보다 조금 작게
@@ -29,7 +30,7 @@ def needs_ocr(page: pymupdf.Page) -> bool:
 
 
 def windows_engine() -> tuple[Engine | None, str]:
-    """윈도우 내장 한국어 글자 인식. 못 쓰면 (None, 이유)."""
+    """윈도우 내장 글자 인식(한국어 우선, 없으면 사용자 언어). 못 쓰면 (None, 이유)."""
     try:
         import asyncio
 
@@ -38,14 +39,19 @@ def windows_engine() -> tuple[Engine | None, str]:
         from winrt.windows.media.ocr import OcrEngine
         from winrt.windows.storage.streams import DataWriter
     except Exception:
-        return None, "글자 인식은 윈도우에서만 쓸 수 있습니다."
+        return None, tr("글자 인식은 윈도우에서만 쓸 수 있습니다.")
     try:
         engine = OcrEngine.try_create_from_language(Language("ko"))
     except Exception:
         engine = None
+    if engine is None:  # 영어 윈도우 등 한국어 인식이 없는 PC: 사용자 언어로 읽는다
+        try:
+            engine = OcrEngine.try_create_from_user_profile_languages()
+        except Exception:
+            engine = None
     if engine is None:
-        return None, ("윈도우에 한국어 글자 인식이 깔려 있지 않습니다. "
-                      "설정 > 시간 및 언어 > 언어에서 한국어의 '광학 문자 인식'을 설치해 주세요.")
+        return None, (tr("윈도우에 글자 인식 언어가 깔려 있지 않습니다. "
+                         "설정 > 시간 및 언어 > 언어에서 쓰는 언어의 '광학 문자 인식'을 설치해 주세요."))
 
     def run(rgb: bytes, w: int, h: int) -> list:
         bgra = bytearray(w * h * 4)
@@ -96,7 +102,7 @@ def add_text_layer(doc: pymupdf.Document, pages: dict) -> int:
     count = 0
     for pno, words in pages.items():
         if not 0 <= pno < doc.page_count:
-            raise DocOpError("쪽 번호가 맞지 않습니다.")
+            raise DocOpError(tr("쪽 번호가 맞지 않습니다."))
         page = doc[pno]
         rot = page.rotation
         for rect, text in words:

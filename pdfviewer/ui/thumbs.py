@@ -11,6 +11,7 @@ from PySide6.QtGui import QColor, QCursor, QDrag, QFont, QIcon, QPainter, QPen, 
 from PySide6.QtWidgets import QAbstractItemView, QListView, QListWidget, QListWidgetItem, QMenu
 
 from .render import page_pixmap
+from ..i18n import tr
 
 THUMB_W = 130
 BATCH = 6  # 한 번에 그릴 쪽 그림 수(큰 문서에서 화면이 멈추지 않게)
@@ -73,9 +74,9 @@ class ThumbList(QListWidget):
         # setMovement(Static)이 viewport의 놓기 받기를 꺼 버리므로 반드시 다시 켠다(실제 놓기는 viewport가 받음)
         self.setAcceptDrops(True)
         self.viewport().setAcceptDrops(True)
-        self.setToolTip("쪽을 끌어서 원하는 자리에 놓으면 순서가 바뀝니다.\n"
+        self.setToolTip(tr("쪽을 끌어서 원하는 자리에 놓으면 순서가 바뀝니다.\n"
                         "다른 PDF 파일을 끌어다 놓으면 그 자리에 들어갑니다.\n"
-                        "오른쪽 클릭: 회전·내보내기·지우기")
+                        "오른쪽 클릭: 회전·내보내기·지우기"))
         self.setMinimumWidth(THUMB_W + 48)
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self._menu)
@@ -157,7 +158,7 @@ class ThumbList(QListWidget):
             p.fillRect(0, 0, 34, 22, QColor("#e8590c"))
             p.setPen(QColor("white"))
             f = QFont(); f.setBold(True); p.setFont(f)
-            p.drawText(0, 0, 34, 22, Qt.AlignmentFlag.AlignCenter, f"{len(pages)}장")
+            p.drawText(0, 0, 34, 22, Qt.AlignmentFlag.AlignCenter, tr("{n}장").format(n=len(pages)))
             p.end()
         return pm
 
@@ -285,12 +286,12 @@ class ThumbList(QListWidget):
         sel = self.selected_pages()
         m = QMenu(self)
         for key, label, need_sel in [
-            ("export", "고른 쪽 내보내기(다른 이름으로 저장)…", True),
-            ("insert_before", "이 쪽 앞에 PDF 넣기…", True),
-            ("insert_after", "이 쪽 뒤에 PDF 넣기…", True),
-            ("rotate_right", "↻ 시계 방향 90° 돌리기", True),
-            ("rotate_left", "↺ 반시계 방향 90° 돌리기", True),
-            ("delete", "쪽 지우기", True),
+            ("export", tr("고른 쪽 내보내기(다른 이름으로 저장)…"), True),
+            ("insert_before", tr("이 쪽 앞에 PDF 넣기…"), True),
+            ("insert_after", tr("이 쪽 뒤에 PDF 넣기…"), True),
+            ("rotate_right", tr("↻ 시계 방향 90° 돌리기"), True),
+            ("rotate_left", tr("↺ 반시계 방향 90° 돌리기"), True),
+            ("delete", tr("쪽 지우기"), True),
         ]:
             act = m.addAction(label)
             act.setEnabled(bool(sel) or not need_sel)

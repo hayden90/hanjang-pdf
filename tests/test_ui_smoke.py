@@ -1567,3 +1567,16 @@ def test_public_build_has_no_company_folder_paths():
     from pdfviewer.core import im_index
     assert im_index.SUBPATHS == []
     assert im_index.find_root([os.path.expanduser("~")]) is None
+
+
+def test_language_menu_saves_choice(win, monkeypatch):
+    """도움말 > Language: 고르면 설정에 저장되고, 지금과 다른 언어면 다시 시작하라고 알린다."""
+    told = []
+    monkeypatch.setattr(QMessageBox, "information", lambda parent, title, text: told.append(text))
+    assert win.a_lang["ko"].isChecked() and not win.a_lang["en"].isChecked()
+    win.a_lang["en"].trigger()
+    assert win.settings.value("ui/lang") == "en"
+    assert told and "Restart" in told[0]
+    win.a_lang["ko"].trigger()
+    assert win.settings.value("ui/lang") == "ko"
+    assert len(told) == 1  # 지금 언어를 다시 고르면 묻지 않음

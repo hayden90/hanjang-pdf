@@ -17,6 +17,7 @@ from .page_view import PageView, select_hint
 from .printing import ask_and_print
 from .text_dialog import last_style
 from .thumbs import ThumbList
+from ..i18n import tr
 
 
 DEFAULT_BOX_W = 200  # 끌지 않고 눌렀을 때 여는 글자 상자 폭(pt)
@@ -25,7 +26,7 @@ ocr_engine = ocr.windows_engine  # 글자 인식 엔진을 만드는 함수(시�
 
 def ask_password(parent, path: str) -> str | None:
     pw, ok = QInputDialog.getText(
-        parent, "암호", f"{os.path.basename(path)}\n암호를 넣어 주세요.", QLineEdit.EchoMode.Password)
+        parent, tr("암호"), tr("{file}\n암호를 넣어 주세요.").format(file=os.path.basename(path)), QLineEdit.EchoMode.Password)
     return pw if ok and pw else None
 
 
@@ -48,11 +49,11 @@ class SearchBar(QWidget):
         super().__init__(parent)
         lay = QHBoxLayout(self)
         lay.setContentsMargins(6, 4, 6, 4)
-        self.edit = QLineEdit(placeholderText="찾을 글자 (Enter: 다음, Shift+Enter: 이전)")
+        self.edit = QLineEdit(placeholderText=tr("찾을 글자 (Enter: 다음, Shift+Enter: 이전)"))
         self.count = QLabel("")
-        self.prev = QPushButton("이전")
-        self.next = QPushButton("다음")
-        self.close_btn = QPushButton("닫기")
+        self.prev = QPushButton(tr("이전"))
+        self.next = QPushButton(tr("다음"))
+        self.close_btn = QPushButton(tr("닫기"))
         for w in (self.edit, self.count, self.prev, self.next, self.close_btn):
             lay.addWidget(w)
 
@@ -139,7 +140,7 @@ class DocTab(QWidget):
             result = self.d.edit(fn, *args)
         except DocOpError as e:
             self.refresh()  # 실패해도 문서는 편집 전 사본으로 바뀌었으니 화면을 다시 맞춘다
-            QMessageBox.warning(self, "편집", str(e))
+            QMessageBox.warning(self, tr("편집"), str(e))
             return None
         self.refresh(keep_page, select)
         if msg:
@@ -166,7 +167,7 @@ class DocTab(QWidget):
         n = self._do(insert_all, items, at, keep_page=at, select=None)
         if n:
             self.thumbs.set_document(self.d.doc, list(range(at, at + n)))
-            self.status.emit(f"{at + 1}쪽 자리에 {n}쪽을 넣었습니다.")
+            self.status.emit(tr("{at}쪽 자리에 {n}쪽을 넣었습니다.").format(at=at + 1, n=n))
 
     def move_pages(self, pages: list[int], to: int):
         if doc_ops.is_noop_move(self.d.page_count, pages, to):
@@ -180,7 +181,7 @@ class DocTab(QWidget):
     def delete_pages(self, pages: list[int]):
         if pages:
             self._do(doc_ops.delete_pages, pages, keep_page=max(0, pages[0] - 1),
-                     msg=f"{len(pages)}쪽을 지웠습니다. 되돌리기: Ctrl+Z")
+                     msg=tr("{n}쪽을 지웠습니다. 되돌리기: Ctrl+Z").format(n=len(pages)))
 
     def rotate(self, pages: list[int], deg: int):
         if pages:
@@ -202,7 +203,7 @@ class DocTab(QWidget):
             return
         if self.d.undo():
             self.refresh(keep_scroll=True)
-            self.status.emit("되돌렸습니다. 다시 하기: Ctrl+Y")
+            self.status.emit(tr("되돌렸습니다. 다시 하기: Ctrl+Y"))
 
     def redo(self):
         if self.view.editing_text:
@@ -210,7 +211,7 @@ class DocTab(QWidget):
             return
         if self.d.redo():
             self.refresh(keep_scroll=True)
-            self.status.emit("다시 했습니다.")
+            self.status.emit(tr("다시 했습니다."))
 
     # ── 글자 인식 ──
     def recognize_text(self) -> int:
@@ -222,14 +223,14 @@ class DocTab(QWidget):
             return 0
         todo = [i for i in range(self.d.page_count) if ocr.needs_ocr(self.d.doc[i])]
         if not todo:
-            QMessageBox.information(self, "글자 인식", "모든 쪽에 이미 글자 정보가 있어 읽을 쪽이 없습니다.")
+            QMessageBox.information(self, tr("글자 인식"), tr("모든 쪽에 이미 글자 정보가 있어 읽을 쪽이 없습니다."))
             return 0
         engine, why = ocr_engine()
         if engine is None:
-            QMessageBox.information(self, "글자 인식", why)
+            QMessageBox.information(self, tr("글자 인식"), why)
             return 0
-        prog = QProgressDialog("글자를 읽는 중…", "취소", 0, len(todo), self)
-        prog.setWindowTitle("글자 인식")
+        prog = QProgressDialog(tr("글자를 읽는 중…"), tr("취소"), 0, len(todo), self)
+        prog.setWindowTitle(tr("글자 인식"))
         prog.setWindowModality(Qt.WindowModality.WindowModal)
         prog.setMinimumDuration(400)
         found = {}
@@ -238,27 +239,26 @@ class DocTab(QWidget):
                 prog.setValue(n)
                 QApplication.processEvents()
                 if prog.wasCanceled():
-                    self.status.emit("글자 인식을 취소했습니다. 문서는 그대로입니다.")
+                    self.status.emit(tr("글자 인식을 취소했습니다. 문서는 그대로입니다."))
                     return 0
                 words = ocr.recognize_page(self.d.doc[pno], engine)
                 if words:
                     found[pno] = words
         except Exception as e:
-            QMessageBox.warning(self, "글자 인식", f"글자를 읽지 못했습니다: {e}")
+            QMessageBox.warning(self, tr("글자 인식"), tr("글자를 읽지 못했습니다: {e}").format(e=e))
             return 0
         finally:
             canceled = prog.wasCanceled()  # 마지막 쪽을 읽는 도중 누른 취소도 받는다
             prog.close()
         if canceled:
-            self.status.emit("글자 인식을 취소했습니다. 문서는 그대로입니다.")
+            self.status.emit(tr("글자 인식을 취소했습니다. 문서는 그대로입니다."))
             return 0
         if not found:
-            QMessageBox.information(self, "글자 인식", "읽을 수 있는 글자를 찾지 못했습니다.")
+            QMessageBox.information(self, tr("글자 인식"), tr("읽을 수 있는 글자를 찾지 못했습니다."))
             return 0
         count = self._do(ocr.add_text_layer, found, keep_page=self.view.current_page)
         if count:
-            self.status.emit(f"글자 인식: {len(found)}쪽에 낱말 {count}개를 넣었습니다. 이제 끌어서 고르기·복사·찾기가 됩니다."
-                             " 인식한 글자는 틀릴 수 있으니 숫자·지번은 원문과 대조하세요. 되돌리기: Ctrl+Z")
+            self.status.emit(tr("글자 인식: {n}쪽에 낱말 {count}개를 넣었습니다. 이제 끌어서 고르기·복사·찾기가 됩니다. 인식한 글자는 틀릴 수 있으니 숫자·지번은 원문과 대조하세요. 되돌리기: Ctrl+Z").format(n=len(found), count=count))
         return count or 0
 
     def _on_text_selected(self, n: int):
@@ -271,7 +271,7 @@ class DocTab(QWidget):
             result = self.d.edit(fn, pno, *args)
         except DocOpError as e:
             self.refresh(keep_scroll=True)  # 실패하면 문서가 편집 전 사본으로 바뀌므로 화면을 다시 맞춤
-            QMessageBox.warning(self, "주석", str(e))
+            QMessageBox.warning(self, tr("주석"), str(e))
             return None
         self.view.rerender_page(pno)
         self.thumbs.rerender(pno)
@@ -281,16 +281,16 @@ class DocTab(QWidget):
         return result
 
     def add_highlight(self, pno: int, rect):
-        self._annot_do(pno, annots.add_highlight, rect, self.view.hl_color, msg="형광펜을 칠했습니다. 되돌리기: Ctrl+Z")
+        self._annot_do(pno, annots.add_highlight, rect, self.view.hl_color, msg=tr("형광펜을 칠했습니다. 되돌리기: Ctrl+Z"))
 
     def _ask_note(self, title: str, text: str = "") -> str | None:
-        t, ok = QInputDialog.getMultiLineText(self, title, "메모 내용", text)
+        t, ok = QInputDialog.getMultiLineText(self, title, tr("메모 내용"), text)
         return t if ok and t.strip() else None
 
     def add_note(self, pno: int, point):
-        text = self._ask_note("메모 붙이기")
+        text = self._ask_note(tr("메모 붙이기"))
         if text is not None:
-            self._annot_do(pno, annots.add_note, point, text, msg="메모를 붙였습니다.")
+            self._annot_do(pno, annots.add_note, point, text, msg=tr("메모를 붙였습니다."))
 
     def text_at(self, pno: int, point):
         """글자 도구로 그냥 누름: 이 프로그램의 글자 상자 위면 고치고, 아니면 그 자리에 기본 폭 상자를 연다."""
@@ -313,7 +313,7 @@ class DocTab(QWidget):
         try:
             st = annots.text_style(self.d.doc, pno, xref)
         except DocOpError as e:
-            QMessageBox.warning(self, "글자 고치기", str(e))
+            QMessageBox.warning(self, tr("글자 고치기"), str(e))
             return
         self.view.open_text_editor(pno, st["edit_box"], xref, **{k: st[k] for k in ("text", "size", "align", "color")})
 
@@ -323,7 +323,7 @@ class DocTab(QWidget):
         rows = d.get("rows")  # 쓰는 칸에서 보이던 줄 그대로 넣음
         if d["xref"] is None:
             done = self._annot_do(pno, annots.add_text_box, d["box"], *vals, rows,
-                                  msg="글자를 넣었습니다. 인쇄에도 나옵니다. 되돌리기: Ctrl+Z")
+                                  msg=tr("글자를 넣었습니다. 인쇄에도 나옵니다. 되돌리기: Ctrl+Z"))
         else:
             try:
                 st = annots.text_style(self.d.doc, pno, d["xref"])
@@ -331,38 +331,38 @@ class DocTab(QWidget):
                 st = None
             if st is not None and vals == (st["text"], st["size"], st["align"], st["color"]):
                 return  # 바꾼 것이 없음
-            done = self._annot_do(pno, annots.set_text, d["xref"], *vals, rows, d["box"], msg="글자를 고쳤습니다. 되돌리기: Ctrl+Z")
+            done = self._annot_do(pno, annots.set_text, d["xref"], *vals, rows, d["box"], msg=tr("글자를 고쳤습니다. 되돌리기: Ctrl+Z"))
         if done is None:
             self.view.open_text_editor(pno, d["box"], d["xref"], **dict(zip(("text", "size", "align", "color"), vals)))
 
     def add_box(self, pno: int, rect):
         st = self.view.box_style
         self._annot_do(pno, annots.add_box, rect, st["line"], st["fill"], st["width"], st["opacity"],
-                       msg="상자를 그렸습니다. 색은 '상자' 옆 ▾, 그린 상자를 누르면 지금 색으로 바뀝니다.")
+                       msg=tr("상자를 그렸습니다. 색은 '상자' 옆 ▾, 그린 상자를 누르면 지금 색으로 바뀝니다."))
 
     def box_click(self, pno: int, point):
         xref = annots.box_at(self.d.doc, pno, point)
         if xref is None:
-            self.status.emit("상자는 쪽 위를 끌어서 그려 주세요. 그린 상자를 누르면 지금 고른 색으로 바뀝니다.")
+            self.status.emit(tr("상자는 쪽 위를 끌어서 그려 주세요. 그린 상자를 누르면 지금 고른 색으로 바뀝니다."))
             return
         st = self.view.box_style
         self._annot_do(pno, annots.set_box_style, xref, st["line"], st["fill"], st["width"], st["opacity"],
-                       msg="상자 색을 바꿨습니다. 되돌리기: Ctrl+Z")
+                       msg=tr("상자 색을 바꿨습니다. 되돌리기: Ctrl+Z"))
 
     def erase_at(self, pno: int, point):
         info = annots.annot_at(self.d.doc, pno, point)
         if info is None:
-            self.status.emit("그 자리에 지울 형광펜·메모·글자·상자가 없습니다. 끌면 그 범위를 한꺼번에 지웁니다.")
+            self.status.emit(tr("그 자리에 지울 형광펜·메모·글자·상자가 없습니다. 끌면 그 범위를 한꺼번에 지웁니다."))
             return
-        self._annot_do(pno, annots.delete_annot, info["xref"], msg="지웠습니다. 되돌리기: Ctrl+Z")
+        self._annot_do(pno, annots.delete_annot, info["xref"], msg=tr("지웠습니다. 되돌리기: Ctrl+Z"))
 
     def erase_area(self, pno: int, rect):
         if not annots.own_in_rect(self.d.doc, pno, rect):
-            self.status.emit("끈 범위에 지울 형광펜·메모·글자·상자가 없습니다.")
+            self.status.emit(tr("끈 범위에 지울 형광펜·메모·글자·상자가 없습니다."))
             return
         n = self._annot_do(pno, annots.delete_in_rect, rect)
         if n:
-            self.status.emit(f"{n}개를 지웠습니다. 되돌리기: Ctrl+Z")
+            self.status.emit(tr("{n}개를 지웠습니다. 되돌리기: Ctrl+Z").format(n=n))
 
     def open_note(self, pno: int, point):
         info = annots.annot_at(self.d.doc, pno, point, prefer=pymupdf.PDF_ANNOT_FREE_TEXT)
@@ -371,9 +371,9 @@ class DocTab(QWidget):
             return
         if info is None or info["type"] != pymupdf.PDF_ANNOT_TEXT:
             return
-        text = self._ask_note("메모 고치기", info["text"])
+        text = self._ask_note(tr("메모 고치기"), info["text"])
         if text is not None and text.strip() != info["text"]:
-            self._annot_do(pno, annots.set_note_text, info["xref"], text, msg="메모를 고쳤습니다.")
+            self._annot_do(pno, annots.set_note_text, info["xref"], text, msg=tr("메모를 고쳤습니다."))
 
     def _on_context(self, key: str, pages: list[int]):
         if key == "export":
@@ -391,7 +391,7 @@ class DocTab(QWidget):
             self.delete_pages(pages)
 
     def _pick_pdfs(self) -> list[str]:
-        paths, _ = QFileDialog.getOpenFileNames(self, "넣을 PDF 고르기", os.path.dirname(self.d.path), "PDF (*.pdf)")
+        paths, _ = QFileDialog.getOpenFileNames(self, tr("넣을 PDF 고르기"), os.path.dirname(self.d.path), "PDF (*.pdf)")
         return paths
 
     # ── 저장 ──
@@ -406,10 +406,10 @@ class DocTab(QWidget):
             return path  # 원본 덮어쓰기는 부르는 쪽에서 따로 확인
         if self.open_elsewhere(path):
             # 그 탭에 남은 옛 내용을 나중에 Ctrl+S 하면 지금 저장한 것이 사라진다
-            QMessageBox.warning(self, title, f"{os.path.basename(path)} 파일은 다른 탭에 열려 있습니다.\n그 탭을 먼저 닫은 뒤 다시 저장해 주세요.")
+            QMessageBox.warning(self, title, tr("{file} 파일은 다른 탭에 열려 있습니다.\n그 탭을 먼저 닫은 뒤 다시 저장해 주세요.").format(file=os.path.basename(path)))
             return None
         if os.path.exists(path):
-            ok = QMessageBox.question(self, title, f"{os.path.basename(path)} 파일이 이미 있습니다. 바꿀까요?")
+            ok = QMessageBox.question(self, title, tr("{file} 파일이 이미 있습니다. 바꿀까요?").format(file=os.path.basename(path)))
             if ok != QMessageBox.StandardButton.Yes:
                 return None
         return path
@@ -418,8 +418,8 @@ class DocTab(QWidget):
         if not self.d.was_encrypted:
             return True
         ok = QMessageBox.warning(
-            self, "암호 문서",
-            "이 PDF는 암호가 걸려 있었습니다. 저장하는 파일에는 암호가 걸리지 않습니다. 계속할까요?",
+            self, tr("암호 문서"),
+            tr("이 PDF는 암호가 걸려 있었습니다. 저장하는 파일에는 암호가 걸리지 않습니다. 계속할까요?"),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No)
         return ok == QMessageBox.StandardButton.Yes
 
@@ -430,21 +430,21 @@ class DocTab(QWidget):
         if not self.confirm_unencrypted():
             return False
         stem = os.path.splitext(self.d.path)[0]
-        path = self._ask_save_path("고른 쪽 내보내기", f"{stem}_{page_label(pages)}쪽.pdf")
+        path = self._ask_save_path(tr("고른 쪽 내보내기"), tr("{stem}_{pages}쪽.pdf").format(stem=stem, pages=page_label(pages)))
         if not path:
             return False
         try:
             n = self.d.export_pages(pages, path)
         except DocOpError as e:
-            QMessageBox.warning(self, "내보내기", str(e))
+            QMessageBox.warning(self, tr("내보내기"), str(e))
             return False
-        self.status.emit(f"{n}쪽을 {os.path.basename(path)}(으)로 내보냈습니다.")
+        self.status.emit(tr("{n}쪽을 {file}(으)로 내보냈습니다.").format(n=n, file=os.path.basename(path)))
         return True
 
     def confirm_overwrite_original(self) -> bool:
         ok = QMessageBox.warning(
-            self, "원본에 덮어쓰기",
-            f"원본 파일 {self.d.name}을(를) 지금 내용으로 덮어씁니다.\n덮어쓰면 되돌릴 수 없습니다. 계속할까요?",
+            self, tr("원본에 덮어쓰기"),
+            tr("원본 파일 {name}을(를) 지금 내용으로 덮어씁니다.\n덮어쓰면 되돌릴 수 없습니다. 계속할까요?").format(name=self.d.name),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No)
         return ok == QMessageBox.StandardButton.Yes
 
@@ -452,7 +452,7 @@ class DocTab(QWidget):
         if not self.flush_editor() or not self.confirm_unencrypted():
             return False
         stem = os.path.splitext(self.d.path)[0]
-        path = self._ask_save_path("다른 이름으로 저장", f"{stem}_편집.pdf")
+        path = self._ask_save_path(tr("다른 이름으로 저장"), tr("{stem}_편집.pdf").format(stem=stem))
         if not path:
             return False
         if same_file(path, self.d.path) and not self.confirm_overwrite_original():
@@ -467,10 +467,10 @@ class DocTab(QWidget):
         try:
             self.d.save_to(path)
         except DocOpError as e:
-            QMessageBox.warning(self, "저장", str(e))
+            QMessageBox.warning(self, tr("저장"), str(e))
             return False
         self.changed.emit()
-        self.status.emit(f"{os.path.basename(path)}(으)로 저장했습니다.")
+        self.status.emit(tr("{file}(으)로 저장했습니다.").format(file=os.path.basename(path)))
         return True
 
     # ── 인쇄 ──
@@ -480,10 +480,10 @@ class DocTab(QWidget):
         try:
             n = ask_and_print(self, self.d.doc, self.view.current_page)
         except RuntimeError as e:
-            QMessageBox.warning(self, "인쇄", str(e))
+            QMessageBox.warning(self, tr("인쇄"), str(e))
             return 0
         if n:
-            self.status.emit(f"{n}쪽을 인쇄로 보냈습니다.")
+            self.status.emit(tr("{n}쪽을 인쇄로 보냈습니다.").format(n=n))
         return n
 
     # ── 찾기 ──
@@ -528,6 +528,6 @@ class DocTab(QWidget):
         if not self._query.strip():
             self.search.count.setText("")
         elif not self._hits:
-            self.search.count.setText("없음")
+            self.search.count.setText(tr("없음"))
         else:
             self.search.count.setText(f"{self._hit_i + 1} / {len(self._hits)}")

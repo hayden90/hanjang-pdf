@@ -8,39 +8,40 @@ from PySide6.QtWidgets import (
 )
 
 from ..core.annots import TEXT_MAX, TEXT_MIN
+from ..i18n import tr
 
-ALIGN_LABELS = (("left", "왼쪽"), ("center", "가운데"), ("right", "오른쪽"))
-PRESET_COLORS = (("#000000", "검정"), ("#d00000", "빨강"), ("#0050c8", "파랑"), ("#138a36", "초록"), ("#e8590c", "주황"))
+ALIGN_LABELS = (("left", tr("왼쪽")), ("center", tr("가운데")), ("right", tr("오른쪽")))
+PRESET_COLORS = (("#000000", tr("검정")), ("#d00000", tr("빨강")), ("#0050c8", tr("파랑")), ("#138a36", tr("초록")), ("#e8590c", tr("주황")))
 
 # 마지막에 고른 크기·정렬·색(다음 글자 상자의 기본값)
 last_style = {"size": 12, "align": "left", "color": "#000000"}
 
 
 class TextDialog(QDialog):
-    def __init__(self, parent=None, title="글자 넣기", text="", size=None, align=None, color=None):
+    def __init__(self, parent=None, title=tr("글자 넣기"), text="", size=None, align=None, color=None):
         super().__init__(parent)
         self.setWindowTitle(title)
         self.color = color or last_style["color"]
         self.edit = QPlainTextEdit(text)
-        self.edit.setPlaceholderText("넣을 글자 (Enter로 줄 바꿈)")
+        self.edit.setPlaceholderText(tr("넣을 글자 (Enter로 줄 바꿈)"))
         self.size = QSpinBox(minimum=TEXT_MIN, maximum=TEXT_MAX, suffix=" pt")
         self.size.setValue(size or last_style["size"])
         self.align = QComboBox()
         for key, label in ALIGN_LABELS:
             self.align.addItem(label, key)
         self.align.setCurrentIndex([k for k, _ in ALIGN_LABELS].index(align or last_style["align"]))
-        self.align.setToolTip("왼쪽: 누른 곳에서 시작 / 가운데: 누른 곳이 가운데 / 오른쪽: 누른 곳에서 끝남")
+        self.align.setToolTip(tr("왼쪽: 누른 곳에서 시작 / 가운데: 누른 곳이 가운데 / 오른쪽: 누른 곳에서 끝남"))
 
         row = QHBoxLayout()
-        row.addWidget(QLabel("크기"))
+        row.addWidget(QLabel(tr("크기")))
         row.addWidget(self.size)
         row.addSpacing(12)
-        row.addWidget(QLabel("정렬"))
+        row.addWidget(QLabel(tr("정렬")))
         row.addWidget(self.align)
         row.addStretch(1)
 
         crow = QHBoxLayout()
-        crow.addWidget(QLabel("색"))
+        crow.addWidget(QLabel(tr("색")))
         self.color_group = QButtonGroup(self)
         self.color_buttons = {}
         for hexv, label in PRESET_COLORS:
@@ -51,7 +52,7 @@ class TextDialog(QDialog):
             self.color_group.addButton(b)
             self.color_buttons[hexv] = b
             crow.addWidget(b)
-        self.more = QPushButton("다른 색…")
+        self.more = QPushButton(tr("다른 색…"))
         self.more.clicked.connect(self._pick_color)
         crow.addWidget(self.more)
         self.swatch = QLabel()
@@ -60,8 +61,8 @@ class TextDialog(QDialog):
         crow.addStretch(1)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-        buttons.button(QDialogButtonBox.StandardButton.Ok).setText("넣기")
-        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("취소")
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setText(tr("넣기"))
+        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText(tr("취소"))
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
 
@@ -81,7 +82,7 @@ class TextDialog(QDialog):
         self.swatch.setStyleSheet(f"background: {self.color}; border: 1px solid #888;")
 
     def _pick_color(self) -> None:
-        c = QColorDialog.getColor(QColor(self.color), self, "글자 색")
+        c = QColorDialog.getColor(QColor(self.color), self, tr("글자 색"))
         if c.isValid():
             self._set_color(c.name())
 
@@ -89,7 +90,7 @@ class TextDialog(QDialog):
         return self.edit.toPlainText(), self.size.value(), self.align.currentData(), self.color
 
 
-def ask_text(parent, title="글자 넣기", **current) -> tuple[str, int, str, str] | None:
+def ask_text(parent, title=tr("글자 넣기"), **current) -> tuple[str, int, str, str] | None:
     """창을 띄워 (글자, 크기, 정렬, 색)을 받는다. 취소하거나 글자가 비면 None."""
     dlg = TextDialog(parent, title, **current)
     if dlg.exec() != QDialog.DialogCode.Accepted:
