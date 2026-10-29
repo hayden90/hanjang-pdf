@@ -23,7 +23,7 @@ APP_VERSION = "rev12"
 SOURCE_URL = "https://github.com/hayden90/hanjang-pdf"  # AGPL: 받은 사람이 소스를 받을 수 있는 곳
 BUBIGTER_URL = "https://www.bubigter.com/?utm_source=hanjangpdf&utm_medium=app"
 ABOUT_TEXT = (
-    f"<b>{APP_NAME}</b> {APP_VERSION}<br>부동산 서류를 보기 좋게 만든 PDF 뷰어<br><br>"
+    f"<b>{APP_NAME}</b> {APP_VERSION}<br>서류를 보기 좋게 만든 PDF 뷰어<br><br>"
     "이 프로그램은 자유 소프트웨어입니다. GNU AGPL v3 조건으로 다시 배포하거나 고칠 수 있으며,"
     " 어떤 보증도 하지 않습니다.<br>"
     f"소스 코드: <a href=\"{SOURCE_URL}\">{SOURCE_URL}</a><br><br>"
