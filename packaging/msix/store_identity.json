@@ -1,0 +1,8 @@
+{
+  "_설명": "파트너 센터 '제품 ID' 화면 값(공개 식별자, 비밀 아님). 스토어 제출용 MSIX를 묶을 때 AppxManifest.xml의 자리를 이 값으로 채운다.",
+  "IDENTITY": "F448C026.PDF",
+  "PUBLISHER": "CN=44EBC4AC-6037-485D-B95F-32EACCFF40B6",
+  "PUBLISHER_NAME": "부빅터",
+  "store_id": "9PL78MKLQK1Z",
+  "store_url": "https://apps.microsoft.com/detail/9PL78MKLQK1Z"
+}
