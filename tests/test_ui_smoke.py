@@ -1580,3 +1580,97 @@ def test_language_menu_saves_choice(win, monkeypatch):
     win.a_lang["ko"].trigger()
     assert win.settings.value("ui/lang") == "ko"
     assert len(told) == 1  # 지금 언어를 다시 고르면 묻지 않음
+
+
+def test_editor_grip_drag_moves_box_new_and_existing(win, tmp_path):
+    """쓰는 칸 손잡이(✥)를 끌면 상자가 옮겨지고, 넣으면 옮긴 자리에 들어가야(새 상자·기존 상자 모두)."""
+    import pymupdf
+    from PySide6.QtTest import QTest
+    from pdfviewer.core import annots
+    win.open_path(_annot_pdf(tmp_path)); pump()
+    t = win.tab()
+    z = t.view.zoom
+
+    def drag(ed, dx, dy):
+        g = ed.grip
+        c = g.rect().center()
+        # QTest 좌표는 손잡이 기준인데 손잡이도 따라 움직이므로 한 번에 끈다
+        QTest.mousePress(g, Qt.MouseButton.LeftButton, pos=c)
+        QTest.mouseMove(g, c + QPoint(dx, dy))
+        QTest.mouseRelease(g, Qt.MouseButton.LeftButton, pos=c)
+        pump()
+
+    # 새 상자: 오른쪽 아래로 옮겨 넣기
+    t.view.open_text_editor(0, pymupdf.Rect(100, 100, 300, 140), text="MOVE ME"); pump()
+    ed = t.view._editor
+    before = ed.edit.geometry().topLeft()
+    drag(ed, 80, 60)
+    after = ed.edit.geometry().topLeft()
+    assert (after.x() - before.x(), after.y() - before.y()) == (80, 60)
+    ed.commit(); pump()
+    page = t.d.doc[0]  # 쪽을 잡아 두어야 주석을 읽는 동안 쪽이 사라지지 않음
+    (a,) = list(page.annots())
+    assert a.info["content"] == "MOVE ME"
+    x = a.xref
+    r = annots.text_style(t.d.doc, 0, x)["edit_box"]  # 글이 보이는 자리(쓰는 칸이 떠 있던 자리)
+    assert abs(r.x0 - (100 + 80 / z)) < 1 and abs(r.y0 - (100 + 60 / z)) < 1
+
+    # 기존 상자: 글은 그대로 두고 자리만 옮겨도 옮겨져야
+    st = annots.text_style(t.d.doc, 0, x)
+    t.edit_text(0, x); pump()
+    ed = t.view._editor
+    drag(ed, -40, 100)
+    ed.commit(); pump()
+    page = t.d.doc[0]
+    (b,) = list(page.annots())
+    assert b.info["content"] == "MOVE ME"
+    bx = b.xref
+    br = annots.text_style(t.d.doc, 0, bx)["edit_box"]
+    assert abs(br.x0 - (r.x0 - 40 / z)) < 1 and abs(br.y0 - (r.y0 + 100 / z)) < 1
+
+    # 쪽 밖으로는 못 나감
+    t.edit_text(0, bx); pump()
+    ed = t.view._editor
+    drag(ed, -5000, -5000)
+    box = t.view._editor_at[1]
+    assert box.x0 >= 0 and box.y0 >= 0
+    ed.cancel(); pump()
+    assert st["text"] == "MOVE ME"
+
+
+def test_editor_grip_without_move_keeps_box_unchanged(win, tmp_path):
+    """기존 상자를 열었다가 옮기지도 고치지도 않고 넣으면 아무것도 바뀌지 않아야(되돌리기 기록도 없음)."""
+    import pymupdf
+    from pdfviewer.core import annots
+    win.open_path(_annot_pdf(tmp_path)); pump()
+    t = win.tab()
+    x = t.d.edit(annots.add_text_box, 0, pymupdf.Rect(100, 100, 300, 140), "STAY", 14, "left", "#000000")
+    t.refresh(); pump()
+    dirty = t.d.dirty if hasattr(t.d, "dirty") else None
+    t.edit_text(0, x); pump()
+    t.view._editor.commit(); pump()
+    page = t.d.doc[0]
+    assert [a.xref for a in page.annots()] == [x]
+    if dirty is not None:
+        assert t.d.dirty == dirty
+
+
+def test_editor_grip_moves_box_pushed_up_at_page_bottom(win, tmp_path):
+    """쪽 아래 끝이라 위로 밀려 보이는 상자도 손잡이로 끈 만큼 보이던 자리에서 옮겨져야."""
+    import pymupdf
+    from pdfviewer.core import annots
+    win.open_path(_annot_pdf(tmp_path)); pump()
+    t = win.tab()
+    t.view.set_zoom(1.0); pump()
+    text = "\n".join(f"LINE {i}" for i in range(7))
+    t.view.open_text_editor(0, pymupdf.Rect(60, 770, 280, 790), text=text, size=24, align="left"); pump()
+    ed = t.view._editor
+    y0 = ed.edit.geometry().y()
+    assert y0 < 770 - 50  # 위로 밀려 보임
+    ed.grip.dragged.emit(0.0, -20.0); pump()
+    assert abs(ed.edit.geometry().y() - (y0 - 20)) <= 1
+    ed.commit(); pump()
+    page = t.d.doc[0]
+    (a,) = list(page.annots())
+    shown = annots.text_style(t.d.doc, 0, a.xref)["edit_box"]
+    assert abs(shown.y0 - (y0 - 20)) < 3

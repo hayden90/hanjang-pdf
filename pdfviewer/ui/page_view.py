@@ -350,7 +350,10 @@ class PageView(QScrollArea):
         self._editor, self._editor_at = ed, (index, pymupdf.Rect(box), xref)
         ed.committed.connect(lambda *v, e=ed: self._on_editor_done(e, v))
         ed.cancelled.connect(lambda e=ed: self._on_editor_done(e, None))
-        ed.top_hint = lambda text, size, rows, i=index, b=pymupdf.Rect(box): self._editor_top(i, b, text, size, rows)
+        # 손잡이로 옮기면 상자 자리가 바뀌므로 지금 자리를 읽는다
+        ed.top_hint = lambda text, size, rows, e=ed: (
+            self._editor_top(*self._editor_at[:2], text, size, rows) if e is self._editor else None)
+        ed.dragged.connect(lambda dx, dy, e=ed: self._move_editor(e, dx, dy))
         ed.edit.undoAvailable.connect(lambda _: self.editorChanged.emit())
         ed.edit.redoAvailable.connect(lambda _: self.editorChanged.emit())
         self._place_editor()
@@ -374,6 +377,26 @@ class PageView(QScrollArea):
         index, box, _ = self._editor_at
         r, z = (box * self.doc[index].rotation_matrix).normalize(), self.zoom
         self._editor.place(QRectF(r.x0 * z, r.y0 * z, r.width * z, r.height * z), z)
+
+    def _move_editor(self, ed, dx: float, dy: float) -> None:
+        """손잡이로 끈 양(화면 픽셀)만큼 쓰는 상자를 옮긴다. 쪽 밖으로는 나가지 않는다."""
+        if ed is not self._editor or self.doc is None:
+            return
+        index, box, xref = self._editor_at
+        page = self.doc[index]
+        r = (box * page.rotation_matrix).normalize()  # 화면에 보이는 방향의 쪽 좌표
+        if ed._top is not None and ed._top / self.zoom < r.y0:
+            # 쪽 아래 끝이라 위로 밀려 보이던 상자는 보이던 자리에서부터 옮긴다
+            r = pymupdf.Rect(r.x0, ed._top / self.zoom, r.x1, ed._top / self.zoom + r.height)
+        pr = page.rect
+        nx = min(max(r.x0 + dx / self.zoom, pr.x0), max(pr.x1 - r.width, pr.x0))
+        ny = min(max(r.y0 + dy / self.zoom, pr.y0), max(pr.y1 - r.height, pr.y0))
+        if (nx, ny) == (r.x0, r.y0):
+            return
+        moved = pymupdf.Rect(nx, ny, nx + r.width, ny + r.height)
+        self._editor_at = (index, (moved * page.derotation_matrix).normalize(), xref)
+        ed._top_key, ed._top = None, None  # 쪽 아래 끝 판단을 새 자리로 다시(멀어지면 밀림도 없음)
+        self._place_editor()
 
     def _on_editor_done(self, ed, values) -> None:
         if ed is not self._editor:

@@ -24,6 +24,11 @@ DEFAULT_BOX_W = 200  # 끌지 않고 눌렀을 때 여는 글자 상자 폭(pt)
 ocr_engine = ocr.windows_engine  # 글자 인식 엔진을 만드는 함수(시험에서 가짜로 바꿔 끼움)
 
 
+def _same_rect(a, b, tol: float = 0.01) -> bool:
+    """두 사각형이 거의 같은가(손잡이로 옮기지 않았으면 쓰는 칸 자리는 edit_box 그대로)."""
+    return all(abs(p - q) <= tol for p, q in zip(pymupdf.Rect(a), pymupdf.Rect(b)))
+
+
 def ask_password(parent, path: str) -> str | None:
     pw, ok = QInputDialog.getText(
         parent, tr("암호"), tr("{file}\n암호를 넣어 주세요.").format(file=os.path.basename(path)), QLineEdit.EchoMode.Password)
@@ -329,8 +334,9 @@ class DocTab(QWidget):
                 st = annots.text_style(self.d.doc, pno, d["xref"])
             except DocOpError:
                 st = None
-            if st is not None and vals == (st["text"], st["size"], st["align"], st["color"]):
-                return  # 바꾼 것이 없음
+            same_place = st is not None and _same_rect(st["edit_box"], d["box"])
+            if same_place and vals == (st["text"], st["size"], st["align"], st["color"]):
+                return  # 바꾼 것이 없음(글도 자리도 그대로)
             done = self._annot_do(pno, annots.set_text, d["xref"], *vals, rows, d["box"], msg=tr("글자를 고쳤습니다. 되돌리기: Ctrl+Z"))
         if done is None:
             self.view.open_text_editor(pno, d["box"], d["xref"], **dict(zip(("text", "size", "align", "color"), vals)))

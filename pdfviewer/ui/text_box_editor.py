@@ -1,15 +1,16 @@
 """쪽 위에서 바로 쓰는 글자 상자: 끌어 정한 상자 자리에 글 칸을 띄우고, 위에 크기·정렬·색 막대를 붙인다.
 
 넣기(Ctrl+Enter 또는 '넣기' 단추, 상자 밖을 누름)하면 committed, Esc·'취소'면 cancelled를 낸다.
+막대 왼쪽 손잡이(✥)를 끌면 dragged(dx, dy)를 내고, PageView가 상자 자리를 옮겨 다시 놓는다.
 상자 자리(rect)는 화면(쪽 위젯) 좌표이고, 배율이 바뀌면 PageView가 place()로 다시 놓는다.
 """
 from __future__ import annotations
 
-from PySide6.QtCore import QEvent, QObject, QRectF, Qt, Signal
+from PySide6.QtCore import QEvent, QObject, QPointF, QRectF, Qt, Signal
 import pymupdf
-from PySide6.QtGui import QColor, QFont, QFontDatabase, QFontMetricsF, QTextBlockFormat, QTextCursor, QTextOption
+from PySide6.QtGui import QColor, QCursor, QFont, QFontDatabase, QFontMetricsF, QTextBlockFormat, QTextCursor, QTextOption
 from PySide6.QtWidgets import (
-    QColorDialog, QComboBox, QHBoxLayout, QMenu, QPushButton, QSpinBox, QTextEdit, QToolButton, QWidget,
+    QColorDialog, QComboBox, QHBoxLayout, QLabel, QMenu, QPushButton, QSpinBox, QTextEdit, QToolButton, QWidget,
 )
 
 from ..core.annots import BOX_LEAD, TEXT_MAX, TEXT_MIN, box_min_width, box_need_height
@@ -76,9 +77,39 @@ class _Edit(QTextEdit):
         super().keyPressEvent(e)
 
 
+class _Grip(QLabel):
+    """끌어서 상자를 옮기는 손잡이. 누른 자리부터 움직인 양(쪽 위젯 좌표)을 알린다."""
+    dragged = Signal(float, float)
+
+    def __init__(self):
+        super().__init__("✥")
+        self.setCursor(QCursor(Qt.CursorShape.SizeAllCursor))
+        self.setToolTip(tr("끌어서 옮기기"))
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.setStyleSheet("QLabel { padding: 0 4px; font-size: 14px; }")
+        self._last: QPointF | None = None
+
+    def mousePressEvent(self, e):
+        if e.button() == Qt.MouseButton.LeftButton:
+            self._last = e.globalPosition()
+            e.accept()
+
+    def mouseMoveEvent(self, e):
+        if self._last is None:
+            return
+        pos = e.globalPosition()
+        d, self._last = pos - self._last, pos
+        if d.x() or d.y():
+            self.dragged.emit(d.x(), d.y())
+
+    def mouseReleaseEvent(self, e):
+        self._last = None
+
+
 class TextBoxEditor(QObject):
     committed = Signal(str, int, str, str)  # 글자, 크기, 정렬, 색
     cancelled = Signal()
+    dragged = Signal(float, float)  # 손잡이로 끈 양(쪽 위젯 좌표)
 
     def __init__(self, page_widget: QWidget, text: str = "", size=None, align=None, color=None):
         super().__init__(page_widget)
@@ -111,6 +142,9 @@ class TextBoxEditor(QObject):
         lay = QHBoxLayout(self.bar)
         lay.setContentsMargins(4, 2, 4, 2)
         lay.setSpacing(4)
+        self.grip = _Grip()
+        self.grip.dragged.connect(self._on_grip)
+        lay.addWidget(self.grip)
         self.size = QSpinBox(minimum=TEXT_MIN, maximum=TEXT_MAX, suffix=" pt")
         self.size.setValue(size or last_style["size"])
         self.size.valueChanged.connect(self._restyle)
@@ -136,6 +170,10 @@ class TextBoxEditor(QObject):
             lay.addWidget(w)
         self.bar.adjustSize()
         self._restyle()
+
+    def _on_grip(self, dx: float, dy: float) -> None:
+        self.dragged.emit(dx, dy)
+        self.edit.setFocus()  # 옮긴 뒤 바로 이어 쓰게
 
     # ── 모양 ──
     def set_color(self, hexv: str) -> None:
