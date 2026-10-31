@@ -1,0 +1,42 @@
+{
+  "_설명": "8-1b 호환 실증 공통 입력. 안드로이드 계측 시험(CompatTest)과 맥 대조 스크립트(tests/android_compat/compat.py)가 같은 파일을 읽는다. 좌표는 돌리기 전 쪽 좌표(PyMuPDF 규약).",
+  "make": [
+    {"op": "add_text", "pno": 0, "anchor": [60, 60], "text": "안녕하세요 한장PDF 글자", "size": 14, "align": "left", "color": "#d00000"},
+    {"op": "add_text", "pno": 0, "anchor": [380, 120], "text": "오른쪽 정렬\n두 줄째 글자 & <b>", "size": 12, "align": "right", "color": "#0050c8"},
+    {"op": "add_text_box", "pno": 0, "box": [40, 160, 240, 200], "text": "여러 줄 글자 상자입니다. 길게 써서 줄이 바뀌는지 봅니다 abc def ghi  두 칸", "size": 12, "align": "left", "color": "#000000"},
+    {"op": "add_text_box", "pno": 0, "box": [260, 160, 380, 190], "text": "가운데 상자 office", "size": 14, "align": "center", "color": "#00a000"},
+    {"op": "add_text_box", "pno": 0, "box": [250, 220, 390, 250], "text": "오른쪽 끈 상자\n 앞 칸 줄", "size": 10, "align": "right", "color": "#800080"},
+    {"op": "add_highlight", "pno": 0, "rect": [45, 315, 200, 340], "color": "yellow"},
+    {"op": "add_highlight", "pno": 0, "rect": [50, 500, 150, 520], "color": "green"},
+    {"op": "add_note", "pno": 0, "point": [30, 560], "text": "메모 내용입니다"},
+    {"op": "add_box", "pno": 0, "rect": [50, 400, 200, 480], "line": null, "fill": "#00a000", "width": 2, "opacity": 0.5},
+    {"op": "add_box", "pno": 0, "rect": [220, 400, 350, 480], "line": "#d00000", "fill": null, "width": 3, "opacity": 1.0},
+    {"op": "add_text", "pno": 1, "anchor": [100, 100], "text": "회전 쪽 글자", "size": 12, "align": "center", "color": "#000000"},
+    {"op": "add_text_box", "pno": 1, "box": [60, 300, 260, 360], "text": "돌린 쪽 상자 글자\n둘째 줄", "size": 14, "align": "right", "color": "#d00000"},
+    {"op": "add_highlight", "pno": 1, "rect": [45, 215, 250, 240], "color": "yellow"},
+    {"op": "add_note", "pno": 1, "point": [80, 500], "text": "돌린 쪽 메모"},
+    {"op": "add_box", "pno": 1, "rect": [250, 450, 400, 600], "line": "#0000ff", "fill": "#ffff00", "width": 1, "opacity": 0.7}
+  ],
+  "android_edits_pc": [
+    {"op": "set_text", "pno": 0, "at": [70, 100], "text": "안드로이드가 고친 글자", "size": 16, "align": "left", "color": "#000000"},
+    {"op": "set_text", "pno": 1, "at": [160, 330], "text": "안드로이드가 고친 상자", "size": 12, "align": "left", "color": "#0050c8"},
+    {"op": "delete_in_rect", "pno": 0, "rect": [60, 505, 70, 515], "expect": 1},
+    {"op": "set_box_style", "pno": 0, "at": [285, 440], "line": "#0000ff", "fill": "#ffcccc", "width": 2, "opacity": 0.8}
+  ],
+  "pc_edits_android": [
+    {"op": "set_text", "pno": 0, "at": [70, 100], "text": "PC가 고친 글자", "size": 18, "align": "center", "color": "#d00000"},
+    {"op": "set_text", "pno": 1, "at": [160, 330], "text": "PC가 고친 돌린 상자", "size": 12, "align": "center", "color": "#000000"},
+    {"op": "delete_in_rect", "pno": 0, "rect": [60, 505, 70, 515], "expect": 1},
+    {"op": "set_box_style", "pno": 0, "at": [285, 440], "line": "#00a000", "fill": null, "width": 5, "opacity": 1.0}
+  ],
+  "android_edits_again": [
+    {"op": "delete_in_rect", "pno": 0, "rect": [100, 175, 110, 185], "expect": 1},
+    {"op": "set_text", "pno": 0, "at": [370, 140], "text": "안드로이드 두 번째 고침\n셋째 판", "size": 12, "align": "right", "color": "#000000"},
+    {"op": "set_box_style", "pno": 0, "at": [125, 440], "line": "#d00000", "fill": "#00a000", "width": 1, "opacity": 0.3},
+    {"op": "set_text", "pno": 1, "at": [160, 330], "text": "안드로이드가 또 고친 상자", "size": 14, "align": "left", "color": "#d00000"}
+  ],
+  "two_saves": [
+    {"op": "add_text_box", "pno": 0, "box": [40, 160, 240, 200], "text": "첫째 상자 글자", "size": 14, "align": "left", "color": "#000000"},
+    {"op": "add_text_box", "pno": 0, "box": [40, 300, 240, 340], "text": "둘째 상자 글자 office", "size": 14, "align": "left", "color": "#d00000"}
+  ]
+}
