@@ -1,4 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">한장PDF</string>
+    <string name="open">열기</string>
+    <string name="open_pdf">PDF 열기</string>
+    <string name="empty_hint">PDF를 열어 주세요.</string>
+    <string name="find">찾기</string>
+    <string name="find_hint">찾을 낱말</string>
+    <string name="find_prev">이전</string>
+    <string name="find_next">다음</string>
+    <string name="find_none">없음</string>
+    <string name="pw_title">암호가 걸린 PDF입니다</string>
+    <string name="pw_wrong">암호가 맞지 않습니다. 다시 입력해 주세요.</string>
+    <string name="ok">확인</string>
+    <string name="cancel">취소</string>
+    <string name="err_read">파일을 읽을 수 없습니다.</string>
+    <string name="err_broken">PDF를 열 수 없습니다. 파일이 깨졌거나 PDF가 아닙니다.</string>
 </resources>

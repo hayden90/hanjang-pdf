@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">HanjangPDF</string>
+    <string name="open">Open</string>
+    <string name="open_pdf">Open PDF</string>
+    <string name="empty_hint">Open a PDF to start.</string>
+    <string name="find">Find</string>
+    <string name="find_hint">Search text</string>
+    <string name="find_prev">Prev</string>
+    <string name="find_next">Next</string>
+    <string name="find_none">None</string>
+    <string name="pw_title">This PDF is password protected</string>
+    <string name="pw_wrong">Wrong password. Please try again.</string>
+    <string name="ok">OK</string>
+    <string name="cancel">Cancel</string>
+    <string name="err_read">Could not read the file.</string>
+    <string name="err_broken">Could not open the PDF. The file is damaged or not a PDF.</string>
+</resources>

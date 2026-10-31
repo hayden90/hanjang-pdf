@@ -185,8 +185,12 @@ def cmd_compare(w: str) -> None:
             # 형광펜 사각형이 PC와 다르면 실패(검토 판 1 지적 4: 예전에는 note만 냄)
             check(p["QuadPoints"] == a["QuadPoints"],
                   f"[{i}] Highlight QuadPoints PC={p['QuadPoints']} / AN={a['QuadPoints']}")
-    # 안드로이드가 계산한 줄 나눔·읽은 글자도 PC와 같은지
-    for i, (r, op) in enumerate(zip(an["results"], scenario()["make"])):
+    # 안드로이드가 계산한 줄 나눔·읽은 글자도 PC와 같은지.
+    # 결과 개수가 시나리오와 다르면 실패(판 2 검토 MEDIUM: zip이 짧은 쪽에 맞춰 남는 것을 견주지 않고 지나감)
+    make = scenario()["make"]
+    check(len(an["results"]) == len(make), f"안드로이드 make 결과 수 {len(an['results'])} / 시나리오 {len(make)}")
+    check(len(pc["results"]) == len(make), f"PC make 결과 수 {len(pc['results'])} / 시나리오 {len(make)}")
+    for i, (r, op) in enumerate(zip(an["results"], make)):
         pr = pc["results"][i]
         if "rows" in pr:
             check(pr["rows"] == r.get("rows"), f"make[{i}] {op['op']} 줄 나눔: PC={pr['rows']} / AN={r.get('rows')}")
@@ -250,8 +254,14 @@ def _verify_edits(path: str, ops: list[dict], label: str) -> None:
     print(f"{label}: 주석 {len(recs)}개")
 
 
+REQUIRED_EDITS = ("android_edit_pc.pdf", "android_edit2.pdf", "two_saves.pdf")
+
+
 def cmd_verify_edits(w: str) -> None:
     sc = scenario()
+    # 왕복 결과 PDF가 없으면 실패(판 2 검토 MEDIUM: 하나도 없어도 아무것도 안 보고 종료 0이었음)
+    for name in REQUIRED_EDITS:
+        check(os.path.exists(os.path.join(w, name)), f"왕복 결과 파일 있음 {name}")
     p = os.path.join(w, "android_edit_pc.pdf")
     if os.path.exists(p):
         _verify_edits(p, sc["android_edits_pc"], "안드로이드가 PC 파일 고침")
