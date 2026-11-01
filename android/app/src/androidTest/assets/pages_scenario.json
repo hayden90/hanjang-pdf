@@ -1,0 +1,296 @@
+{
+ "base": "pages_case.pdf",
+ "scenarios": [
+  {
+   "name": "rot_mix",
+   "ops": [
+    {
+     "op": "rotate",
+     "pages": [
+      1,
+      6,
+      6,
+      2
+     ],
+     "deg": 90
+    },
+    {
+     "op": "rotate",
+     "pages": [
+      6
+     ],
+     "deg": -90
+    },
+    {
+     "op": "rotate",
+     "pages": [
+      0,
+      5
+     ],
+     "deg": 270
+    },
+    {
+     "op": "rotate",
+     "pages": [
+      3
+     ],
+     "deg": 180
+    }
+   ]
+  },
+  {
+   "name": "del_some",
+   "ops": [
+    {
+     "op": "delete",
+     "pages": [
+      2,
+      4,
+      0,
+      2
+     ]
+    }
+   ]
+  },
+  {
+   "name": "move_fwd",
+   "ops": [
+    {
+     "op": "move",
+     "pages": [
+      5,
+      1
+     ],
+     "to": 0
+    }
+   ]
+  },
+  {
+   "name": "move_back",
+   "ops": [
+    {
+     "op": "move",
+     "pages": [
+      2,
+      0
+     ],
+     "to": 8
+    }
+   ]
+  },
+  {
+   "name": "move_mid",
+   "ops": [
+    {
+     "op": "move",
+     "pages": [
+      6,
+      1,
+      3
+     ],
+     "to": 4
+    }
+   ]
+  },
+  {
+   "name": "move_form_last",
+   "ops": [
+    {
+     "op": "move",
+     "pages": [
+      3
+     ],
+     "to": 8
+    },
+    {
+     "op": "move",
+     "pages": [
+      7
+     ],
+     "to": 0
+    }
+   ]
+  },
+  {
+   "name": "insert_mid",
+   "ops": [
+    {
+     "op": "insert",
+     "file": "pages_insert.pdf",
+     "at": 2
+    }
+   ]
+  },
+  {
+   "name": "insert_end_twice",
+   "ops": [
+    {
+     "op": "insert",
+     "file": "pages_insert.pdf",
+     "at": 8
+    },
+    {
+     "op": "insert",
+     "file": "pages_insert.pdf",
+     "at": 0
+    }
+   ]
+  },
+  {
+   "name": "insert_locked",
+   "ops": [
+    {
+     "op": "insert",
+     "file": "pages_locked.pdf",
+     "at": 8,
+     "password": "pw"
+    }
+   ]
+  },
+  {
+   "name": "export_some",
+   "ops": [
+    {
+     "op": "export",
+     "pages": [
+      5,
+      3,
+      4,
+      0,
+      3
+     ]
+    }
+   ]
+  },
+  {
+   "name": "export_form",
+   "ops": [
+    {
+     "op": "export",
+     "pages": [
+      3
+     ]
+    }
+   ]
+  },
+  {
+   "name": "combo",
+   "ops": [
+    {
+     "op": "rotate",
+     "pages": [
+      0
+     ],
+     "deg": 90
+    },
+    {
+     "op": "move",
+     "pages": [
+      7
+     ],
+     "to": 0
+    },
+    {
+     "op": "delete",
+     "pages": [
+      4
+     ]
+    },
+    {
+     "op": "insert",
+     "file": "pages_insert.pdf",
+     "at": 1
+    },
+    {
+     "op": "move",
+     "pages": [
+      1,
+      2,
+      3
+     ],
+     "to": 10
+    }
+   ]
+  },
+  {
+   "name": "err_delete_all",
+   "ops": [
+    {
+     "op": "delete",
+     "pages": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "error": true
+    }
+   ]
+  },
+  {
+   "name": "err_rot45",
+   "ops": [
+    {
+     "op": "rotate",
+     "pages": [
+      0
+     ],
+     "deg": 45,
+     "error": true
+    }
+   ]
+  },
+  {
+   "name": "err_move_to",
+   "ops": [
+    {
+     "op": "move",
+     "pages": [
+      0
+     ],
+     "to": 9,
+     "error": true
+    }
+   ]
+  },
+  {
+   "name": "err_bad_page",
+   "ops": [
+    {
+     "op": "delete",
+     "pages": [
+      8
+     ],
+     "error": true
+    }
+   ]
+  },
+  {
+   "name": "err_empty",
+   "ops": [
+    {
+     "op": "rotate",
+     "pages": [],
+     "deg": 90,
+     "error": true
+    }
+   ]
+  },
+  {
+   "name": "err_locked_pw",
+   "ops": [
+    {
+     "op": "insert",
+     "file": "pages_locked.pdf",
+     "at": 0,
+     "password": "nope",
+     "error": true
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 시험 전용: '다른 앱'처럼 content:// 로 PDF를 넘기고 받는 제공자(시험 APK 쪽, 앱에는 들어가지 않음).
+     실제 문서 제공자처럼 제공자 전체는 권한으로 막고(앱에 없는 DUMP, 셸에는 있음) 문서마다 준 uri 권한으로만 열리게 한다.
+     문서 넣기는 시험이 셸(content call)로 부른다. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <provider
+            android:name="com.bubigter.hanjangpdf.TestDocsProvider"
+            android:authorities="com.bubigter.hanjangpdf.testdocs"
+            android:exported="true"
+            android:grantUriPermissions="true"
+            android:permission="android.permission.DUMP" />
+    </application>
+</manifest>

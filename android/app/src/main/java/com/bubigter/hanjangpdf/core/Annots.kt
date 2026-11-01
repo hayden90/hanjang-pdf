@@ -9,7 +9,7 @@ import com.artifex.mupdf.fitz.Rect
 import java.text.Normalizer
 
 /** 사용자에게 그대로 보여 줄 수 있는 편집 오류(PC판 DocOpError). */
-class DocOpError(message: String) : Exception(message)
+open class DocOpError(message: String) : Exception(message)
 
 /**
  * 형광펜·메모·글자 상자·상자: PC판 pdfviewer/core/annots.py를 그대로 옮긴 것(그 파일이 기준).

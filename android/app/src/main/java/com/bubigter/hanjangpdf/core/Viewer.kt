@@ -101,7 +101,10 @@ object Intake {
     }
 }
 
-class ViewDoc internal constructor(val pdf: PDFDocument) {
+class ViewDoc internal constructor(pdf: PDFDocument) {
+    /** 지금 문서. 쪽 작업이 실패해 편집 전 판으로 돌아가거나 되돌리기로 다른 판을 열면 [EditSession]이 바꾼다. */
+    var pdf: PDFDocument = pdf
+        private set
     /** 쪽 크기(화면 방향, pt). [load] 뒤에 채워진다. */
     var sizes: List<VRect> = emptyList()
         private set
@@ -116,20 +119,34 @@ class ViewDoc internal constructor(val pdf: PDFDocument) {
             close()
             OpenResult.Broken("empty")
         } else {
-            sizes = List(n) { i ->
-                val p = pdf.loadPage(i)
-                try {
-                    val b = p.bounds
-                    VRect(0f, 0f, b.x1 - b.x0, b.y1 - b.y0)
-                } finally {
-                    p.destroy()
-                }
-            }
+            measure()
             OpenResult.Ok(this)
         }
     } catch (e: RuntimeException) {
         close()
         OpenResult.Broken("pages")
+    }
+
+    /** 쪽 크기를 다시 잰다(쪽 작업 뒤). 실패하면 예외(부르는 쪽이 편집 전 판으로 돌아간다). */
+    fun measure() {
+        val n = pdf.countPages()
+        sizes = List(n) { i ->
+            val p = pdf.loadPage(i)
+            try {
+                val b = p.bounds
+                VRect(0f, 0f, b.x1 - b.x0, b.y1 - b.y0)
+            } finally {
+                p.destroy()
+            }
+        }
+    }
+
+    /** 다른 판의 문서로 바꾼다(지난 문서는 닫는다). [EditSession]만 부른다. */
+    internal fun swap(next: PDFDocument) {
+        val old = pdf
+        pdf = next
+        if (old !== next) old.destroy()
+        measure()
     }
 
     val pageCount get() = sizes.size

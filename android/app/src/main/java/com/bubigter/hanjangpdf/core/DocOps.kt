@@ -21,6 +21,9 @@ object DocOps {
      */
     @Volatile var workDir: File? = null
 
+    /** 정리 없이 쓰되 암호를 풀어 쓰는 저장 옵션(되돌리기 사본·저장 임시 파일). */
+    const val SAVE_PLAIN = "decrypt"
+
     /**
      * 시험 전용: 이 단계 이름("raw"·"fix"·"final"·"verify"·"replace")에 이르면 일부러 실패한다.
      * 앱 코드는 쓰지 않는다(늘 null).
@@ -48,7 +51,8 @@ object DocOps {
         try {
             raw = File.createTempFile("save", ".raw.pdf", dir)
             step("raw")
-            doc.save(raw.path, "")
+            // 암호 PDF도 저장 파일에는 암호가 없다(PC판 save()와 같음). 그래야 아래에서 암호 없이 다시 열린다.
+            doc.save(raw.path, SAVE_PLAIN)
             tmp = File.createTempFile("save", ".pdf.tmp", out.parentFile)
             val copy = Document.openDocument(raw.path).asPDF() ?: throw DocOpError("임시 사본이 PDF가 아닙니다.")
             try {

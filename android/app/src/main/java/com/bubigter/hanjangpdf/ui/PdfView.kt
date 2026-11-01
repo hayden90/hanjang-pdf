@@ -96,6 +96,13 @@ fun PdfView(model: ViewerModel, doc: ViewDoc, modifier: Modifier = Modifier) {
             model.jumpTo = null
         }
 
+        // 쪽 목록에서 고른 쪽·쪽 작업 뒤 보던 쪽으로 옮긴다.
+        LaunchedEffect(model.jumpPage, layout) {
+            val p = model.jumpPage ?: return@LaunchedEffect
+            if (p in 0 until layout.count) oy = layout.clampY(layout.tops[p] * zoom, zoom, viewH)
+            model.jumpPage = null
+        }
+
         val paint = remember { Paint(Paint.FILTER_BITMAP_FLAG) }
         val cur = model.cursor
         Canvas(
