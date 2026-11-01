@@ -49,11 +49,23 @@ class ViewerModel(app: Application) : AndroidViewModel(app) {
         private set
     var title by mutableStateOf("")
         private set
-    /** 열기·찾기가 따로 켜고 끈다(한쪽이 끝나며 다른 쪽 표시를 지우지 않게). */
-    private var opening by mutableStateOf(false)
-    private var searching by mutableStateOf(false)
+    /** 열기·찾기가 따로 켜고 끈다(한쪽이 끝나며 다른 쪽 표시를 지우지 않게). 꺼질 때 미뤄 둔 열기를 연다([afterBusy]). */
+    private var openingState by mutableStateOf(false)
+    private var searchingState by mutableStateOf(false)
+    private var workingState by mutableStateOf(false)
+    private var opening: Boolean
+        get() = openingState
+        set(v) { openingState = v; if (!v) afterBusy() }
+    private var searching: Boolean
+        get() = searchingState
+        set(v) { searchingState = v; if (!v) afterBusy() }
     /** 쪽 작업·저장·공유가 도는 중. */
-    private var working by mutableStateOf(false)
+    private var working: Boolean
+        get() = workingState
+        set(v) { workingState = v; if (!v) afterBusy() }
+    /** 도는 중에 다른 앱의 '열기·공유'로 들어온 문서(끝나면 연다, 마지막 것 하나만). */
+    internal var queuedOpen: Pair<Uri, Int>? = null
+        private set
     /** 열기·찾기·편집·저장이 도는 중(화면이 도는 표시를 띄우고, 그동안 새 열기·편집은 받지 않는다). */
     val busy get() = opening || searching || working
     /** 암호를 묻는 중이면 그 문서, [pwWrong]은 방금 틀렸는지. */
@@ -148,6 +160,13 @@ class ViewerModel(app: Application) : AndroidViewModel(app) {
         private set
     private val cr get() = getApplication<Application>().contentResolver
 
+    /**
+     * '원본 되돌리기' 직전에 따로 보관한 그때의 원본(물을 것 하나).
+     * init보다 위에 둔다: 복구 폴더가 비면 checkRecovery가 멈추지 않고 생성자 안에서 끝까지 돌아 이 값을 쓴다.
+     */
+    var kept by mutableStateOf<Recovery.Kept?>(null)
+        private set
+
     init {
         // 끝나지 않은 덮어쓰기가 있으면 묻는다(공유 사본·지난 이력 정리는 앱 시작 HanjangApp에서).
         viewModelScope.launch { checkRecovery() }
@@ -156,6 +175,15 @@ class ViewerModel(app: Application) : AndroidViewModel(app) {
     private fun str(id: Int) = getApplication<Application>().getString(id)
 
     fun consumeMessage() { message = null }
+
+    /** 알림 글 하나(주석 도구가 씀). */
+    internal fun say(text: String) { message = text }
+
+    /** 주석 도구 5종·글자 고르기 상태. */
+    val tools = AnnotTools(this)
+
+    /** 쪽 보기 배율·스크롤(편집 뒤 화면을 다시 만들어도 보던 자리 그대로). 문서를 바꾸면 처음으로. */
+    internal val viewPos = floatArrayOf(1f, 0f, 0f)
 
     fun notify(id: Int) { message = str(id) }
 
@@ -171,9 +199,15 @@ class ViewerModel(app: Application) : AndroidViewModel(app) {
 
     fun openUri(uri: Uri, grantFlags: Int = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
                 force: Boolean = false) {
-        if (busy) return
-        // 저장 안 한 편집이 있으면 먼저 묻는다(버리고 열기 / 취소).
-        if (!force && dirty) { pendingOpen = uri to grantFlags; return }
+        if (busy) {
+            // 도는 일이 끝나면 연다(조용히 버리지 않음). 저장 안 한 편집이 있으면 그때 묻는다.
+            queuedOpen = uri to grantFlags
+            message = str(R.string.open_queued)
+            return
+        }
+        // 저장 안 한 편집이나 확인하지 않은 쓰는 칸·메모 글이 있으면 먼저 묻는다(버리고 열기 / 취소).
+        // 메뉴 열기·다른 앱 열기(onCreate·onNewIntent)·미뤄 둔 열기([afterBusy]) 모두 여기를 지난다.
+        if (!force && (dirty || tools.unsaved)) { pendingOpen = uri to grantFlags; return }
         pendingOpen = null
         opening = true
         viewModelScope.launch {
@@ -218,6 +252,14 @@ class ViewerModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** 도는 일이 다 끝났으면 미뤄 둔 열기를 시작한다. */
+    private fun afterBusy() {
+        if (busy) return
+        val q = queuedOpen ?: return
+        queuedOpen = null
+        openUri(q.first, q.second)
+    }
+
     /** 저장 안 한 편집을 버리고 미뤄 둔 문서를 연다. */
     fun confirmOpen() {
         val (uri, flags) = pendingOpen ?: return
@@ -241,6 +283,11 @@ class ViewerModel(app: Application) : AndroidViewModel(app) {
         pwDoc = null
         session = null
         clearSearch()
+        tools.reset()
+        // 끼워 넣을 PDF 암호를 묻던 중이면 닫는다(그 파일은 지난 작업 폴더에 있고, 새 문서에 넣지 않게. 검토 8-4 판 3 MEDIUM과 같은 꼴)
+        insertPw = null
+        insertPwWrong = false
+        viewPos[0] = 1f; viewPos[1] = 0f; viewPos[2] = 0f
         withContext(Dispatchers.Main) { clearTiles(); thumbs.evictAll() }
         withContext(mupdf) { oldSession?.dropHistory(); old?.close() }
         if (oldDir != null && oldDir != dir) withContext(Dispatchers.IO) { dropDirs(oldDir) }
@@ -447,13 +494,16 @@ class ViewerModel(app: Application) : AndroidViewModel(app) {
     // ---- 쪽 작업 ----
 
     /** 편집 하나를 MuPDF 실행기에서 돌린다. 실패하면 [EditSession]이 편집 전 판으로 돌려놓고 알린다. */
-    private fun runEdit(focus: (Int) -> Int?, op: (com.artifex.mupdf.fitz.PDFDocument) -> Int, done: (Int) -> Unit = {}) {
+    private fun runEdit(focus: (Int) -> Int?, op: (com.artifex.mupdf.fitz.PDFDocument) -> Int, measure: Boolean = false,
+                        annot: Boolean = false, done: (Int) -> Unit = {}) {
         val s = session ?: return
         if (busy) return
+        // 쪽 작업은 쓰는 칸·메모 창이 떠 있으면 하지 않는다(주석 편집은 그 칸을 확인하는 일이라 [runAnnotEdit]만 지남)
+        if (!annot && inputOpen()) return
         working = true
         viewModelScope.launch {
             val r = withContext(mupdf) {
-                try { Result.success(s.edit(op)) } catch (e: Exception) { Result.failure(e) }
+                try { Result.success(s.edit(measure, op)) } catch (e: Exception) { Result.failure(e) }
             }
             if (session === s) {
                 clearTiles()
@@ -466,9 +516,32 @@ class ViewerModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /**
+     * 주석 편집 하나(8-3 EditSession으로: 실패하면 편집 전 판, 되돌리기 이력 하나). 보던 자리는 그대로 둔다.
+     * 성공하면 [onOk] 뒤에 [okFn] 또는 [okMsg]를 알린다.
+     */
+    internal fun runAnnotEdit(okMsg: String?, okFn: ((Int) -> String)? = null, onOk: (Int) -> Unit = {},
+                              op: (com.artifex.mupdf.fitz.PDFDocument) -> Int) {
+        runEdit({ null }, op, annot = true) { v ->
+            onOk(v)
+            (okFn?.invoke(v) ?: okMsg)?.let { message = it }
+        }
+    }
+
+    /**
+     * 글자 상자 쓰는 칸이나 메모 창이 떠 있으면 알리고 참(검토 8-4 판 2 HIGH와 같은 꼴).
+     * 그동안 문서 되돌리기·쪽 작업·저장·공유를 하지 않는다: 칸이 가리키는 상자가 바뀌거나, 확인 안 한 글이 빠진 판이 저장된다.
+     */
+    private fun inputOpen(): Boolean {
+        if (tools.editor == null && tools.note == null) return false
+        message = str(R.string.err_editor_open)
+        return true
+    }
+
     private fun editError(e: Throwable): String = when (e) {
         is NoSpaceError -> str(R.string.err_space)
-        is DocOpError -> getApplication<Application>().getString(R.string.err_edit, e.message ?: "")
+        is DocOpError -> if (e.message == com.bubigter.hanjangpdf.core.Annots.TOO_LONG) str(R.string.err_too_long)
+            else getApplication<Application>().getString(R.string.err_edit, e.message ?: "")
         else -> getApplication<Application>().getString(R.string.err_edit, e.toString())
     }
 
@@ -486,7 +559,7 @@ class ViewerModel(app: Application) : AndroidViewModel(app) {
     fun movePages(pages: Collection<Int>, to: Int, done: (Int) -> Unit = {}) {
         val d = doc ?: return
         if (pages.isEmpty() || PageOps.isNoopMove(d.pageCount, pages, to)) return
-        runEdit({ it }, { pdf -> PageOps.move(pdf, pages, to) }, done)
+        runEdit({ it }, { pdf -> PageOps.move(pdf, pages, to) }, done = done)
     }
 
     fun undo() = history(true)
@@ -494,7 +567,7 @@ class ViewerModel(app: Application) : AndroidViewModel(app) {
 
     private fun history(back: Boolean) {
         val s = session ?: return
-        if (busy) return
+        if (busy || inputOpen()) return
         working = true
         viewModelScope.launch {
             val err = withContext(mupdf) {
@@ -513,7 +586,8 @@ class ViewerModel(app: Application) : AndroidViewModel(app) {
     /** 다른 PDF를 [at](그 쪽 앞)에 끼워 넣는다. 먼저 앱 폴더로 복사하고, 암호가 있으면 묻는다. */
     fun insertFrom(uri: Uri, at: Int) {
         val dir = workDir ?: return
-        if (busy || session == null) return
+        val s = session ?: return
+        if (busy || inputOpen()) return
         working = true
         viewModelScope.launch {
             val f = File(dir, "insert.pdf")
@@ -530,6 +604,8 @@ class ViewerModel(app: Application) : AndroidViewModel(app) {
                     is OpenResult.Broken -> "broken"
                 }
             }
+            // 열어 보는 사이(도는 표시가 꺼진 동안) 다른 문서로 바뀌었으면 넣지 않는다(검토 8-4 판 3 MEDIUM과 같은 꼴)
+            if (session !== s) { f.delete(); return@launch }
             when (probe) {
                 "ok" -> doInsert(f, at, null)
                 "locked" -> { insertPwWrong = false; insertPw = f to at }
@@ -563,7 +639,7 @@ class ViewerModel(app: Application) : AndroidViewModel(app) {
         runEdit({ at }, { d ->
             val src = PageOps.openSource(f.path, pw)
             try { PageOps.insertPdf(d, src, at) } finally { src.destroy() }
-        }) { f.delete() }
+        }, measure = true) { f.delete() }
     }
 
     // ---- 저장·공유 ----
@@ -594,27 +670,64 @@ class ViewerModel(app: Application) : AndroidViewModel(app) {
     private fun savedMessage(id: Int) = getApplication<Application>().getString(id) +
         (if (wasEncrypted) "\n" + str(R.string.saved_no_password) else "")
 
-    /** ③ 다른 이름으로 저장(SAF CreateDocument가 준 [uri]). 성공하면 그 파일이 지금 문서의 원본이 된다. */
+    /**
+     * ③ 다른 이름으로 저장(SAF CreateDocument가 준 [uri]). 성공하면 그 파일이 지금 문서의 원본이 된다.
+     * 고른 파일에 이미 내용이 있거나(고르기 창에서 있는 파일을 고름) 지금 원본이면 그냥 "wt"로 쓰지 않고
+     * 원본 덮어쓰기와 같은 경로([Overwrite.run]: before.pdf·saving.json·되써 넣기)로 쓴다([Saver.saveTo]).
+     * 고른 파일을 읽을 수 없으면 쓰지 않는다.
+     */
     fun saveAs(uri: Uri, done: (Boolean) -> Unit = {}) {
         val s = session ?: return
-        if (busy) return
+        if (busy || inputOpen()) return
         working = true
         viewModelScope.launch {
             val r = runCatching {
                 val (file, ver) = withContext(mupdf) { verifiedFile(s) to s.version }
-                withContext(Dispatchers.IO) { Saver.copyTo(file, UriTarget(cr, uri)) }
-                ver
+                val t = UriTarget(cr, uri)
+                val res = withContext(Dispatchers.IO) { Saver.saveTo(file, t, recRoot, displayName(uri), uri == sourceUri) }
+                res to ver
             }
-            if (session === s) r.onSuccess { ver ->
-                withContext(mupdf) { if (s.version == ver) s.markSaved() }
-                sourceUri = uri
-                persisted = takePersist(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
-                title = withContext(Dispatchers.IO) { displayName(uri) }
-                message = savedMessage(R.string.saved)
-            }.onFailure { e -> message = editError(e) }
+            var ok = false
+            if (session === s) r.onSuccess { (x, ver) ->
+                ok = x is Overwrite.Result.Ok
+                if (ok) {
+                    withContext(mupdf) { if (s.version == ver) s.markSaved() }
+                    sourceUri = uri
+                    persisted = takePersist(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+                    title = withContext(Dispatchers.IO) { displayName(uri) }
+                    message = savedMessage(R.string.saved)
+                } else overwriteFailed(x, uri != sourceUri)
+            }.onFailure { e -> message = editError(e); checkRecovery() }
             syncState()
             working = false
-            done(r.isSuccess)
+            done(ok)
+        }
+    }
+
+    /**
+     * 덮어쓰기가 Ok가 아닐 때 알림·복구 물음(원본 덮어쓰기·있는 파일에 다른 이름으로 저장 공통).
+     * [picked]면 사용자가 고른 파일(원본이 아님)이라 알림 글을 '고른 파일'로 쓴다.
+     */
+    private fun overwriteFailed(x: Overwrite.Result, picked: Boolean = false) {
+        val app = getApplication<Application>()
+        when (x) {
+            is Overwrite.Result.Ok -> {}
+            is Overwrite.Result.Restored ->
+                message = app.getString(if (picked) R.string.err_pick_restored else R.string.err_over_restored, x.reason)
+            is Overwrite.Result.Untouched ->
+                message = app.getString(if (picked) R.string.err_pick_untouched else R.string.err_over_untouched, x.reason)
+            is Overwrite.Result.RestoreFailed -> {
+                recovery = x.pending
+                recoveryReadable = false
+                restoreFailed = true
+            }
+            is Overwrite.Result.Unresolved -> {
+                // 같은 원본의 끝나지 않은 덮기 기록을 먼저 처리하게 묻는다(원본은 그대로)
+                message = str(R.string.err_over_pending)
+                recovery = x.pending
+                recoveryReadable = x.readable
+                restoreFailed = false
+            }
         }
     }
 
@@ -622,7 +735,7 @@ class ViewerModel(app: Application) : AndroidViewModel(app) {
     fun overwrite(done: (Overwrite.Result?) -> Unit = {}) {
         val s = session ?: return
         val u = sourceUri ?: return
-        if (busy || !canOverwrite) return
+        if (busy || !canOverwrite || inputOpen()) return
         working = true
         viewModelScope.launch {
             val r = runCatching {
@@ -633,26 +746,10 @@ class ViewerModel(app: Application) : AndroidViewModel(app) {
             var res: Overwrite.Result? = null
             r.onSuccess { (x, ver) ->
                 res = x
-                when (x) {
-                    is Overwrite.Result.Ok -> {
-                        withContext(mupdf) { if (s.version == ver) s.markSaved() }
-                        message = savedMessage(R.string.saved_over)
-                    }
-                    is Overwrite.Result.Restored -> message = getApplication<Application>().getString(R.string.err_over_restored, x.reason)
-                    is Overwrite.Result.Untouched -> message = getApplication<Application>().getString(R.string.err_over_untouched, x.reason)
-                    is Overwrite.Result.RestoreFailed -> {
-                        recovery = x.pending
-                        recoveryReadable = false
-                        restoreFailed = true
-                    }
-                    is Overwrite.Result.Unresolved -> {
-                        // 같은 원본의 끝나지 않은 덮기 기록을 먼저 처리하게 묻는다(원본은 그대로)
-                        message = str(R.string.err_over_pending)
-                        recovery = x.pending
-                        recoveryReadable = x.readable
-                        restoreFailed = false
-                    }
-                }
+                if (x is Overwrite.Result.Ok) {
+                    withContext(mupdf) { if (s.version == ver) s.markSaved() }
+                    message = savedMessage(R.string.saved_over)
+                } else overwriteFailed(x)
             }.onFailure { e ->
                 message = editError(e)
                 // Error(메모리 부족 등)로 덮기가 도중에 멈췄으면 표시가 남아 있을 수 있어 바로 묻는다
@@ -667,7 +764,7 @@ class ViewerModel(app: Application) : AndroidViewModel(app) {
     /** 공유: 검증된 저장 파일의 사본을 share/에 두고 FileProvider 주소를 읽기 권한 한 번으로 넘긴다. */
     fun share(done: (Intent?) -> Unit = {}) {
         val s = session ?: return
-        if (busy) return
+        if (busy || inputOpen()) return
         working = true
         viewModelScope.launch {
             val app = getApplication<Application>()
@@ -692,22 +789,23 @@ class ViewerModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** 고른 쪽을 새 PDF로 내보내기(SAF CreateDocument가 준 [uri]). 지금 문서는 바뀌지 않는다. */
+    /** 고른 쪽을 새 PDF로 내보내기(SAF CreateDocument가 준 [uri]). 지금 문서는 바뀌지 않는다. 내용 있는 파일이면 덮기 보호 경로. */
     fun exportPages(pages: Collection<Int>, uri: Uri, done: (Boolean) -> Unit = {}) {
         val d = doc ?: return
         val dir = workDir ?: return
-        if (busy) return
+        if (busy || inputOpen()) return
         working = true
         viewModelScope.launch {
             val out = File(dir, "export.pdf")
             val r = runCatching {
                 withContext(mupdf) { PageOps.exportPages(d.pdf, pages, out.path) }
-                withContext(Dispatchers.IO) { Saver.copyTo(out, UriTarget(cr, uri)) }
+                withContext(Dispatchers.IO) { Saver.saveTo(out, UriTarget(cr, uri), recRoot, displayName(uri)) }
             }
             withContext(Dispatchers.IO) { out.delete() }
-            r.onSuccess { message = str(R.string.exported) }.onFailure { e -> message = editError(e) }
+            r.onSuccess { x -> if (x is Overwrite.Result.Ok) message = str(R.string.exported) else overwriteFailed(x, true) }
+                .onFailure { e -> message = editError(e); checkRecovery() }
             working = false
-            done(r.isSuccess)
+            done(r.getOrNull() is Overwrite.Result.Ok)
         }
     }
 
@@ -735,20 +833,61 @@ class ViewerModel(app: Application) : AndroidViewModel(app) {
             recoveryReadable = found.second
             restoreFailed = false
         }
+        kept = withContext(Dispatchers.IO) { Recovery.kept(keptRoot).firstOrNull() }
     }
+
+    /** 보관한 원본(current.pdf). recovery/ 밖에 두어 기록 정리([Recovery.list])가 지우지 않는다. */
+    internal val keptRoot get() = File(getApplication<Application>().filesDir, "recovery_kept")
+
+    /** 보관한 원본을 다른 이름으로 저장(SAF CreateDocument가 준 [uri]). */
+    fun keptSaveAs(uri: Uri) {
+        val k = kept ?: return
+        if (busy) return // 다른 저장·복구와 겹치지 않게(검토 8-4 판 2 LOW)
+        working = true
+        viewModelScope.launch {
+            val r = withContext(Dispatchers.IO) { runCatching { Recovery.saveKept(k, UriTarget(cr, uri), recRoot) } }
+            r.onSuccess { x -> if (x is Overwrite.Result.Ok) message = str(R.string.kept_saved) else overwriteFailed(x, true) }
+                .onFailure { e -> message = editError(e); checkRecovery() }
+            kept = withContext(Dispatchers.IO) { Recovery.kept(keptRoot).firstOrNull() }
+            working = false
+        }
+    }
+
+    /** 보관한 원본을 지운다. */
+    fun keptDrop() {
+        val k = kept ?: return
+        viewModelScope.launch {
+            kept = withContext(Dispatchers.IO) { Recovery.dropKept(k); Recovery.kept(keptRoot).firstOrNull() }
+        }
+    }
+
+    /** 나중에 묻기(보관본은 남긴다). */
+    fun keptLater() { kept = null }
 
     /** '원본 복구': before.pdf를 원본에 되써 넣는다. */
     fun recoverRestore() {
         val p = recovery ?: return
+        if (busy) return
         working = true
         viewModelScope.launch {
-            val (ok, open) = withContext(Dispatchers.IO) {
-                Recovery.restore(p, UriTarget(cr, Uri.parse(p.uri))) to Recovery.isOpen(p)
+            val r = withContext(Dispatchers.IO) {
+                runCatching { Recovery.restore(p, UriTarget(cr, Uri.parse(p.uri)), keptRoot) }.map { it to Recovery.isOpen(p) }
             }
-            recovery = null
             working = false
+            // 지금 원본을 읽거나 보관하지 못함: 원본·기록 그대로, 물음도 그대로 두고 알린다(검토 8-4 판 3 HIGH)
+            val e = r.exceptionOrNull()
+            if (e is Recovery.KeepFailed) {
+                message = getApplication<Application>().getString(R.string.err_keep_failed, e.message ?: "")
+                return@launch
+            }
+            val (ok, open) = r.getOrDefault(false to true)
+            recovery = null
             when {
-                ok -> { message = str(R.string.recovered); checkRecovery() }
+                ok -> {
+                    val keptNow = withContext(Dispatchers.IO) { Recovery.kept(keptRoot).isNotEmpty() }
+                    message = str(if (keptNow) R.string.recovered_kept else R.string.recovered)
+                    checkRecovery()
+                }
                 // 다른 화면이 이미 복구·정리한 기록: 원본에 손대지 않았고 더 할 일이 없다
                 !open -> { restoreFailed = false; checkRecovery() }
                 else -> { message = str(R.string.err_recover); recovery = p; recoveryReadable = false; restoreFailed = true }
@@ -759,15 +898,18 @@ class ViewerModel(app: Application) : AndroidViewModel(app) {
     /** '복구본 다른 이름으로 저장'(SAF CreateDocument가 준 [uri]). */
     fun recoverSaveAs(uri: Uri) {
         val p = recovery ?: return
+        if (busy) return
         working = true
         viewModelScope.launch {
-            val r = withContext(Dispatchers.IO) { runCatching { Recovery.saveCopy(p, UriTarget(cr, uri)) } }
+            val r = withContext(Dispatchers.IO) { runCatching { Recovery.saveCopy(p, UriTarget(cr, uri), recRoot) } }
             working = false
-            r.onSuccess {
-                recovery = null
-                restoreFailed = false
-                message = str(R.string.recovery_saved)
-                checkRecovery()
+            r.onSuccess { x ->
+                if (x is Overwrite.Result.Ok) {
+                    recovery = null
+                    restoreFailed = false
+                    message = str(R.string.recovery_saved)
+                    checkRecovery()
+                } else overwriteFailed(x, true) // 복구 기록은 그대로(고른 파일의 원래 내용도 지킴)
             }.onFailure { e ->
                 // 다른 화면이 이미 처리한 기록이면(before.pdf가 없어 실패) 물음을 닫는다
                 if (withContext(Dispatchers.IO) { Recovery.isOpen(p) }) message = editError(e)

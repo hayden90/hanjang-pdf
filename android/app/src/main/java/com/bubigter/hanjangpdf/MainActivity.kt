@@ -4,6 +4,7 @@ import android.content.Intent
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -45,7 +46,10 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.bubigter.hanjangpdf.ui.EditorPanel
+import com.bubigter.hanjangpdf.ui.NoteDialog
 import com.bubigter.hanjangpdf.ui.PageList
+import com.bubigter.hanjangpdf.ui.ToolBar
 import com.bubigter.hanjangpdf.ui.PdfView
 import com.bubigter.hanjangpdf.ui.ViewerModel
 
@@ -78,6 +82,9 @@ private fun App(model: ViewerModel) {
     var selected by remember(model.doc) { mutableStateOf(emptySet<Int>()) }
     var menu by remember { mutableStateOf(false) }
     var askOverwrite by remember { mutableStateOf(false) }
+    var askClose by remember { mutableStateOf(false) }
+    // 저장 안 한 편집·확인 안 한 쓰는 칸·메모 글이 있으면 뒤로 가기로 닫기 전에 묻는다(검토 8-4 판 2 HIGH와 같은 꼴)
+    BackHandler(enabled = model.dirty || model.tools.unsaved) { askClose = true }
     var insertAt by remember { mutableStateOf(0) }
     val pdfName = { suffix: String ->
         model.title.removeSuffix(".pdf").removeSuffix(".PDF").ifEmpty { "document" } + suffix + ".pdf"
@@ -90,6 +97,9 @@ private fun App(model: ViewerModel) {
     }
     val recoverAs = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
         if (uri != null) model.recoverSaveAs(uri)
+    }
+    val keptAs = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
+        if (uri != null) model.keptSaveAs(uri)
     }
     val insert = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) model.insertFrom(uri, insertAt)
@@ -113,31 +123,39 @@ private fun App(model: ViewerModel) {
                     searching = !searching
                     if (!searching) model.clearSearch()
                 }, Modifier.testTag("searchToggle")) { Text(stringResource(R.string.find)) }
-                TextButton(onClick = { showPages = !showPages }, Modifier.testTag("pagesToggle")) { Text(stringResource(R.string.pages)) }
+                TextButton(onClick = {
+                    model.tools.visible = !model.tools.visible
+                    if (!model.tools.visible) { model.tools.tool = com.bubigter.hanjangpdf.ui.Tool.VIEW; model.tools.selection = null }
+                }, Modifier.testTag("toolsToggle"), enabled = model.tools.editor == null) { Text(stringResource(R.string.tools)) }
+                TextButton(onClick = { showPages = !showPages }, Modifier.testTag("pagesToggle"),
+                    enabled = model.tools.editor == null) { Text(stringResource(R.string.pages)) }
             }
             Box {
                 TextButton(onClick = { menu = true }, Modifier.testTag("menu")) { Text("⋮") }
                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                     val has = model.doc != null && !model.busy
+                    // 쓰는 칸이 떠 있으면 저장·공유도 막는다(확인 안 한 글이 빠진 판이 저장되지 않게)
+                    val canSave = has && model.tools.editor == null
                     DropdownMenuItem(text = { Text(stringResource(R.string.open)) }, onClick = { menu = false; openPdf() },
                         modifier = Modifier.testTag("open"))
-                    DropdownMenuItem(text = { Text(stringResource(R.string.save_as)) }, enabled = has,
+                    DropdownMenuItem(text = { Text(stringResource(R.string.save_as)) }, enabled = canSave,
                         onClick = { menu = false; saveAs.launch(pdfName("")) }, modifier = Modifier.testTag("saveAs"))
-                    DropdownMenuItem(text = { Text(stringResource(R.string.save_over)) }, enabled = has,
+                    DropdownMenuItem(text = { Text(stringResource(R.string.save_over)) }, enabled = canSave,
                         onClick = {
                             menu = false
                             if (model.canOverwrite) askOverwrite = true else model.notify(R.string.no_overwrite)
                         }, modifier = Modifier.testTag("saveOver"))
-                    DropdownMenuItem(text = { Text(stringResource(R.string.share)) }, enabled = has,
+                    DropdownMenuItem(text = { Text(stringResource(R.string.share)) }, enabled = canSave,
                         onClick = { menu = false; model.share() }, modifier = Modifier.testTag("share"))
-                    DropdownMenuItem(text = { Text(stringResource(R.string.undo)) }, enabled = has && model.canUndo,
+                    DropdownMenuItem(text = { Text(stringResource(R.string.undo)) }, enabled = has && model.canUndo && model.tools.editor == null,
                         onClick = { menu = false; model.undo() }, modifier = Modifier.testTag("undo"))
-                    DropdownMenuItem(text = { Text(stringResource(R.string.redo)) }, enabled = has && model.canRedo,
+                    DropdownMenuItem(text = { Text(stringResource(R.string.redo)) }, enabled = has && model.canRedo && model.tools.editor == null,
                         onClick = { menu = false; model.redo() }, modifier = Modifier.testTag("redo"))
                 }
             }
         }
         if (searching && model.doc != null && !showPages) SearchBar(model)
+        if (model.tools.visible && model.doc != null && !showPages) ToolBar(model)
         Box(Modifier.weight(1f).fillMaxWidth()) {
             val d = model.doc
             if (d != null && showPages) key(d, model.gen) {
@@ -152,7 +170,9 @@ private fun App(model: ViewerModel) {
             }
             if (model.busy) CircularProgressIndicator(Modifier.align(Alignment.Center))
         }
+        if (model.doc != null && !showPages) EditorPanel(model)
     }
+    NoteDialog(model)
     if (model.pwDoc != null) PasswordDialog(model)
     model.insertPw?.let { p ->
         var pw by remember(p) { mutableStateOf("") }
@@ -175,9 +195,16 @@ private fun App(model: ViewerModel) {
     if (model.pendingOpen != null) AlertDialog(
         onDismissRequest = { model.cancelOpen() },
         title = { Text(stringResource(R.string.dirty_title)) },
-        text = { Text(stringResource(R.string.dirty_body)) },
+        text = { Text(stringResource(if (model.tools.unsaved) R.string.dirty_body_input else R.string.dirty_body)) },
         confirmButton = { TextButton(onClick = { model.confirmOpen() }, Modifier.testTag("discardOpen")) { Text(stringResource(R.string.discard_open)) } },
         dismissButton = { TextButton(onClick = { model.cancelOpen() }) { Text(stringResource(R.string.cancel)) } },
+    )
+    if (askClose) AlertDialog(
+        onDismissRequest = { askClose = false },
+        title = { Text(stringResource(R.string.dirty_title)) },
+        text = { Text(stringResource(R.string.close_body)) },
+        confirmButton = { TextButton(onClick = { askClose = false; (ctx as? android.app.Activity)?.finish() }) { Text(stringResource(R.string.discard_close)) } },
+        dismissButton = { TextButton(onClick = { askClose = false }) { Text(stringResource(R.string.cancel)) } },
     )
     if (askOverwrite) AlertDialog(
         onDismissRequest = { askOverwrite = false },
@@ -196,7 +223,8 @@ private fun App(model: ViewerModel) {
                     failed -> R.string.restore_failed_body
                     !model.recoveryReadable -> R.string.recovery_unreadable
                     else -> R.string.recovery_body
-                }) + if (p.title.isNotEmpty()) "\n\n" + p.title else "")
+                }) + (if (p.title.isNotEmpty()) "\n\n" + p.title else "") +
+                    (if (p.size >= 0) "\n" + stringResource(R.string.size_bytes, sizeText(p.size)) else ""))
             },
             confirmButton = {
                 Row {
@@ -209,6 +237,50 @@ private fun App(model: ViewerModel) {
             dismissButton = { TextButton(onClick = { model.recoverLater() }) { Text(stringResource(R.string.later)) } },
         )
     }
+    model.kept?.let { k -> if (model.recovery == null) KeptDialog(model, k) { keptAs.launch(it) } }
+}
+
+/** 바이트 수를 KB·MB로(복구 물음에 보이는 크기). */
+private fun sizeText(n: Long): String = when {
+    n >= 1L shl 20 -> "%.1f MB".format(n / 1048576.0)
+    n >= 1024 -> "%.0f KB".format(n / 1024.0)
+    else -> "$n B"
+}
+
+@Composable
+private fun KeptDialog(model: ViewerModel, k: com.bubigter.hanjangpdf.core.Recovery.Kept, saveAs: (String) -> Unit) {
+    // '지우기'는 되돌릴 수 없으므로 한 번 더 묻는다(검토 8-4 판 1 LOW)
+    var confirmDrop by remember(k.dir) { mutableStateOf(false) }
+    if (confirmDrop) {
+        AlertDialog(
+            onDismissRequest = { confirmDrop = false },
+            title = { Text(stringResource(R.string.kept_title)) },
+            text = { Text(stringResource(R.string.kept_drop_confirm)) },
+            confirmButton = {
+                TextButton(onClick = { confirmDrop = false; model.keptDrop() }, Modifier.testTag("keptDropYes")) {
+                    Text(stringResource(R.string.delete))
+                }
+            },
+            dismissButton = { TextButton(onClick = { confirmDrop = false }) { Text(stringResource(R.string.cancel)) } },
+        )
+        return
+    }
+    AlertDialog(
+        onDismissRequest = { model.keptLater() },
+        title = { Text(stringResource(R.string.kept_title)) },
+        text = {
+            Text(stringResource(R.string.kept_body) + (if (k.title.isNotEmpty()) "\n\n" + k.title else "") +
+                (if (k.size >= 0) "\n" + stringResource(R.string.size_bytes, sizeText(k.size)) else ""))
+        },
+        confirmButton = {
+            Row {
+                TextButton(onClick = { saveAs(k.title.ifEmpty { "kept.pdf" }.removeSuffix(".pdf") + "_kept.pdf") },
+                    Modifier.testTag("keptSaveAs")) { Text(stringResource(R.string.kept_save_as)) }
+                TextButton(onClick = { confirmDrop = true }, Modifier.testTag("keptDrop")) { Text(stringResource(R.string.delete)) }
+            }
+        },
+        dismissButton = { TextButton(onClick = { model.keptLater() }) { Text(stringResource(R.string.later)) } },
+    )
 }
 
 @Composable

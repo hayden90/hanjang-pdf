@@ -15,11 +15,14 @@ from __future__ import annotations
 import json
 import os
 import sys
+from types import SimpleNamespace
 
 import pymupdf
 
 from pdfviewer.core import annots
 from pdfviewer.core.doc_ops import atomic_save
+from pdfviewer.ui.doc_tab import _same_rect
+from pdfviewer.ui.page_view import PageView
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 SCENARIO = os.path.join(ROOT, "android", "app", "src", "androidTest", "assets", "compat_scenario.json")
@@ -92,9 +95,50 @@ def apply(doc: pymupdf.Document, op: dict) -> dict:
         assert x, f"상자를 못 찾음: {op}"
         annots.set_box_style(doc, pno, x, op["line"], op["fill"], op["width"], op["opacity"])
         out["xref"] = x
+    elif k == "move_text":
+        # PC판 화면 코드를 그대로 돈다(검토 판 1 지적 4: 따로 쓴 셈은 _top 처리가 빠져 있었음).
+        # page_view._editor_top(쓰는 칸의 ed._top) → page_view._move_editor → doc_tab.commit_text(_same_rect·set_text).
+        hit = annots.annot_at(doc, pno, pymupdf.Point(*op["at"]), prefer=pymupdf.PDF_ANNOT_FREE_TEXT)
+        assert hit and hit["type"] == pymupdf.PDF_ANNOT_FREE_TEXT, f"옮길 글자 상자를 못 찾음: {op}"
+        st = annots.text_style(doc, pno, hit["xref"])
+        assert st["text"] == op["text"], f"옮길 상자 글 {st['text']!r} != {op['text']!r}"
+        text = op.get("new_text", st["text"])  # 쓰는 칸에서 글을 고친 뒤 옮김(글이 늘어 쪽 아래 끝에서 밀릴 수 있음)
+        box = _pc_move(doc, pno, hit["xref"], st["edit_box"], text, st["size"], op["dx"], op["dy"])
+        if _same_rect(st["edit_box"], box) and text == st["text"]:  # commit_text: 자리·글·모양 그대로면 고치지 않음
+            out["xref"], out["skipped"] = hit["xref"], True
+        else:
+            out["rows"] = annots._fixed_rect(doc[pno], box, annots._check_text(text, st["size"], st["align"], st["color"]),
+                                             st["size"])[0]
+            out["xref"] = annots.set_text(doc, pno, hit["xref"], text, st["size"], st["align"], st["color"], None, box)
+    elif k == "move_new_text":
+        # 새로 끈 쓰는 칸에 글을 쓰고 넣기 전에 손잡이로 옮김(쪽 아래 끝이면 칸이 밀려 보이던 자리부터) → commit_text의 add_text_box
+        box = _pc_move(doc, pno, None, _rect(op["box"]).normalize(), op["text"], op["size"], op["dx"], op["dy"])
+        out["rows"] = annots._fixed_rect(doc[pno], box, annots._check_text(op["text"], op["size"], op["align"], op["color"]),
+                                         op["size"])[0]
+        out["xref"] = annots.add_text_box(doc, pno, box, op["text"], op["size"], op["align"], op["color"])
+    elif k == "set_note":
+        hit = annots.annot_at(doc, pno, pymupdf.Point(*op["at"]), prefer=pymupdf.PDF_ANNOT_TEXT)
+        assert hit and hit["type"] == pymupdf.PDF_ANNOT_TEXT, f"메모를 못 찾음: {op}"
+        annots.set_note_text(doc, pno, hit["xref"], op["text"])
+        out["xref"] = hit["xref"]
     else:
         raise ValueError(k)
     return out
+
+
+def _pc_move(doc, pno, xref, box, text, size, dx, dy):
+    """PC판 PageView의 쓰는 칸 옮기기를 화면 없이(배율 1) 돌려 옮긴 쓰는 칸 자리(돌리기 전)를 돌려준다.
+
+    쓰는 칸은 쪽 아래 끝에 닿을 때만 ed._top(= _editor_top)을 구하는데(text_box_editor._fit_height),
+    넣을 상자가 위로 밀리는 것도 그때뿐이라 늘 구해도 _move_editor의 결과는 같다(밀리지 않으면 _top이 상자 위끝).
+    줄 나눔은 commit 쪽과 같게 rows=None(안드로이드도 같음).
+    """
+    view = SimpleNamespace(doc=doc, zoom=1.0, _place_editor=lambda: None)
+    ed = SimpleNamespace(_top_key=None, _top=None)
+    view._editor, view._editor_at = ed, (pno, pymupdf.Rect(box), xref)
+    ed._top = PageView._editor_top(view, pno, view._editor_at[1], text, size, None)
+    PageView._move_editor(view, ed, dx, dy)
+    return view._editor_at[1]
 
 
 def _key(doc, x, k):
@@ -197,7 +241,7 @@ def cmd_compare(w: str) -> None:
     # 렌더해 글자가 보이는지(안드로이드 파일을 PC가 그렸을 때 글자 상자 글이 읽히는가)
     txt = page_text(os.path.join(w, "android_made.pdf"))
     for op in scenario()["make"]:
-        if op["op"] in ("add_text", "add_text_box"):
+        if op["op"] in ("add_text", "add_text_box", "move_new_text"):
             check(seen(op["text"], txt[op["pno"]]),
                   f"렌더 글자 보임 p{op['pno']} {op['text'][:10]!r}")
 
@@ -254,6 +298,33 @@ def _verify_edits(path: str, ops: list[dict], label: str) -> None:
     print(f"{label}: 주석 {len(recs)}개")
 
 
+def _same_as_pc(inp: str, ops: list[dict], got: str, label: str) -> None:
+    """8-4: 안드로이드가 옮긴 글자 상자·고친 메모가 PC가 같은 입력에 같은 작업을 했을 때와 PDF 값까지 같은지."""
+    doc = pymupdf.open(inp)
+    for op in ops:
+        apply(doc, op)
+    exp = os.path.join(os.path.dirname(got), "pc_expect_" + os.path.basename(got))
+    atomic_save(doc, exp)
+    doc.close()
+    pc, an = dump(exp), dump(got)
+    for i, op in enumerate(ops):
+        if op["op"] not in ("move_text", "set_note"):
+            continue
+        typ = "FreeText" if op["op"] == "move_text" else "Text"
+        text = op.get("new_text", op["text"])
+        for later in ops[i + 1:]:  # 뒤 작업이 같은 상자의 글을 바꿨으면 마지막 글로 찾는다
+            if later["op"] == op["op"] and later["pno"] == op["pno"] and later["text"] == text:
+                text = later.get("new_text", text)
+        want = [r for r in pc if r["pno"] == op["pno"] and r["type"] == typ and r["Contents"] == text]
+        have = [r for r in an if r["pno"] == op["pno"] and r["type"] == typ and r["Contents"] == text]
+        check(len(want) == 1 and len(have) == 1, f"{label}: {op['op']} {text!r} PC {len(want)} / AN {len(have)}")
+        if len(want) == 1 and len(have) == 1:
+            for k in (FT_KEYS if typ == "FreeText" else OTHER_KEYS):
+                if k in want[0] or k in have[0]:
+                    check(want[0].get(k) == have[0].get(k),
+                          f"{label}: {op['op']} {k}: PC={want[0].get(k)!r} / AN={have[0].get(k)!r}")
+
+
 REQUIRED_EDITS = ("android_edit_pc.pdf", "android_edit2.pdf", "two_saves.pdf")
 
 
@@ -265,11 +336,13 @@ def cmd_verify_edits(w: str) -> None:
     p = os.path.join(w, "android_edit_pc.pdf")
     if os.path.exists(p):
         _verify_edits(p, sc["android_edits_pc"], "안드로이드가 PC 파일 고침")
+        _same_as_pc(os.path.join(w, "pc_made.pdf"), sc["android_edits_pc"], p, "안드로이드가 PC 파일 고침(PC와 같은 값)")
         n_pc = len(dump(os.path.join(w, "pc_made.pdf")))
         check(len(dump(p)) == n_pc - 1, f"안드로이드가 PC 파일 고침: 주석 수 {len(dump(p))} = {n_pc}-1")
     p = os.path.join(w, "android_edit2.pdf")
     if os.path.exists(p):
         _verify_edits(p, sc["android_edits_again"], "PC가 고친 것을 안드로이드가 또 고침")
+        _same_as_pc(os.path.join(w, "pc_edit_android.pdf"), sc["android_edits_again"], p, "또 고침(PC와 같은 값)")
         n = len(dump(os.path.join(w, "pc_edit_android.pdf")))
         check(len(dump(p)) == n - 1, f"또 고침: 주석 수 {len(dump(p))} = {n}-1")
         # PC가 또 열어 고칠 수 있는지(3번째 왕복)

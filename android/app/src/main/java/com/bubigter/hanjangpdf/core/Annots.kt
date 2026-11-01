@@ -61,6 +61,14 @@ class Annots(private val widths: Widths) {
             cp == 0x1680 || cp in 0x2000..0x200a || cp == 0x2028 || cp == 0x2029 || cp == 0x202f ||
             cp == 0x205f || cp == 0x3000
 
+        /** 파이썬 str.strip()(메모 글을 넣을 때와 바뀌었는지 볼 때 같은 기준으로). */
+        fun pyStrip(s: String): String {
+            var a = 0; var b = s.length
+            while (a < b && pyIsSpace(s.codePointAt(a))) a += Character.charCount(s.codePointAt(a))
+            while (b > a && pyIsSpace(s.codePointBefore(b))) b -= Character.charCount(s.codePointBefore(b))
+            return s.substring(a, b)
+        }
+
         /** _squash: 띄어쓰기·줄바꿈을 뺀 글자만(파이썬 re \\s = str.isspace() 글자, NBSP 포함). */
         fun squash(s: String): String {
             val sb = StringBuilder()
@@ -124,17 +132,39 @@ class Annots(private val widths: Widths) {
             30 + size * 1.25 + (maxOf(1, nRows) - 1) * size * 1.3
 
         fun boxMinWidth(size: Int): Double = maxOf(MIN_BOX_W, size * 3 + 8).toDouble()
+
+        /** PyMuPDF page.rotation: 상속 값 포함, 90의 배수가 아니면 0(화면 쪽 [ViewDoc]도 같은 값을 쓴다). */
+        fun pageRotation(page: PDFPage): Int {
+            val r = page.getObject().getInheritable("Rotate")
+            var rot = if (r.isNumber) r.asInteger() else 0
+            while (rot < 0) rot += 360
+            while (rot >= 360) rot -= 360
+            return if (rot % 90 != 0) 0 else rot
+        }
+
+        /**
+         * PC판 page_view._move_editor(rev 63f65c5): 쓰는 칸 상자 [box](돌리기 전 좌표)를 화면 방향으로 [dx],[dy]pt 옮긴다.
+         * 쪽 밖으로는 나가지 않는다. [rot]는 돌리기 전 → 화면 방향 행렬, [pw]·[ph]는 화면 방향 쪽 크기. 안 움직이면 null.
+         * [top]은 글이 보이기 시작하는 높이(화면 방향 pt, PC판 ed._top/zoom, [Annots.editorTop]). 쪽 아래 끝이라 위로 밀려
+         * 보이던 상자([top]이 상자 위끝보다 위)는 보이던 자리에서부터 옮긴다.
+         */
+        fun moveBox(box: PRect, rot: PMatrix, pw: Double, ph: Double, dx: Double, dy: Double, top: Double? = null): PRect? {
+            var r = (box * rot).normalize()
+            if (top != null && top < r.y0) r = PRect(r.x0, top, r.x1, top + r.height)
+            val nx = pyMin(pyMax(r.x0 + dx, 0.0), pyMax(pw - r.width, 0.0))
+            val ny = pyMin(pyMax(r.y0 + dy, 0.0), pyMax(ph - r.height, 0.0))
+            if (nx == r.x0 && ny == r.y0) return null
+            return (PRect(nx, ny, nx + r.width, ny + r.height) * PMatrix.invert(rot)).normalize()
+        }
+
+        /** 쪽 [w]×[h](화면 방향, pt)·회전 [rot]의 돌리기 전 → 화면 방향 행렬(PageGeo.rot와 같은 값). */
+        fun rotMatrix(rot: Int, w: Float, h: Float): PMatrix =
+            if (rot % 180 != 0) PMatrix.rotation(rot, h, w) else PMatrix.rotation(rot, w, h)
     }
 
     // ── 쪽 정보 ──
     /** PyMuPDF page.rotation: 상속 값 포함, 90의 배수가 아니면 0. */
-    fun rotationOf(page: PDFPage): Int {
-        val r = page.getObject().getInheritable("Rotate")
-        var rot = if (r.isNumber) r.asInteger() else 0
-        while (rot < 0) rot += 360
-        while (rot >= 360) rot -= 360
-        return if (rot % 90 != 0) 0 else rot
-    }
+    fun rotationOf(page: PDFPage): Int = pageRotation(page)
 
     /** 쪽 /Rotate를 잠시 0으로 두고 block을 돈다(PyMuPDF annot_preprocess와 같은 방법). */
     fun <T> unrotated(page: PDFPage, block: () -> T): T {
@@ -186,9 +216,15 @@ class Annots(private val widths: Widths) {
     fun isOwn(a: PDFAnnotation): Boolean =
         a.type in OWN_TYPES && info(a, "T") == AUTHOR && info(a, "Subj") == MARK
 
-    /** PyMuPDF annot.rect(돌리기 전 쪽 좌표). */
-    fun annotRect(page: PDFPage, a: PDFAnnotation): PRect = unrotated(page) { a.getBounds() }.let {
-        PRect(it.x0.toDouble(), it.y0.toDouble(), it.x1.toDouble(), it.y1.toDouble())
+    /**
+     * PyMuPDF annot.rect(돌리기 전 쪽 좌표): 쪽 회전을 넣은 pdf_bound_annot에 derotation_matrix를 곱한 것.
+     * (8-4: 쪽 /Rotate를 0으로 두고 재던 예전 방식은 NoRotate 메모 아이콘이 돌린 쪽에서 PC와 다른 자리가 됐다.
+     * 회전이 0이거나 NoRotate가 아닌 주석은 두 방식이 같다.)
+     */
+    fun annotRect(page: PDFPage, a: PDFAnnotation): PRect {
+        val b = a.getBounds()
+        val r = PRect(b.x0.toDouble(), b.y0.toDouble(), b.x1.toDouble(), b.y1.toDouble())
+        return if (rotationOf(page) == 0) r else r * PageGeo(page).der
     }
 
     private fun quadRects(page: PDFPage, a: PDFAnnotation): List<PRect> = unrotated(page) {
@@ -288,13 +324,6 @@ class Annots(private val widths: Widths) {
         return xrefOf(a)
     }
 
-    private fun pyStrip(s: String): String {
-        var a = 0; var b = s.length
-        while (a < b && pyIsSpace(s.codePointAt(a))) a += Character.charCount(s.codePointAt(a))
-        while (b > a && pyIsSpace(s.codePointBefore(b))) b -= Character.charCount(s.codePointBefore(b))
-        return s.substring(a, b)
-    }
-
     // ── 누르기·지우개 판정 ──
     private fun ownAnnot(page: PDFPage, xref: Int): PDFAnnotation =
         annotsOf(page).firstOrNull { xrefOf(it) == xref && isOwn(it) }
@@ -303,6 +332,18 @@ class Annots(private val widths: Widths) {
     fun deleteAnnot(doc: PDFDocument, pno: Int, xref: Int) {
         val page = page(doc, pno)
         page.deleteAnnotation(ownAnnot(page, xref))
+    }
+
+    /** set_note_text: 메모 글을 고친다(빈 글은 거절, 지우기는 지우개). */
+    fun setNoteText(doc: PDFDocument, pno: Int, xref: Int, text: String) {
+        val t = pyStrip(text)
+        if (t.isEmpty()) throw DocOpError("메모 내용이 비어 있습니다. 지우려면 지우개를 쓰세요.")
+        val page = page(doc, pno)
+        val a = ownAnnot(page, xref)
+        if (a.type != PDFAnnotation.TYPE_TEXT) throw DocOpError("메모가 아닙니다.")
+        // PyMuPDF set_info(content=…) + update(): addNote의 마지막 단계와 같은 순서(PC 대조로 맞춘 꼴)
+        a.setContents(t)
+        a.update()
     }
 
     private fun styleParts(a: PDFAnnotation): List<String> {
@@ -466,18 +507,38 @@ class Annots(private val widths: Widths) {
 
     /** _fixed_rect: 끌어 정한 상자. (줄들, 주석 사각형, 글이 보이는 영역). */
     fun fixedRect(g: PageGeo, box: PRect, text: String, size: Int, rows: List<String>? = null): Triple<List<String>, PRect, PRect> {
-        val vis = (box * g.rot).normalize()
-        var w = pyMin(pyMax(vis.width, boxMinWidth(size)), g.pw)
+        val (rs, rect, shown) = fixedRectView(g.rot, g.pw, g.ph, box, text, size, rows)
+        return Triple(rs, (rect * g.der).normalize(), (shown * g.der).normalize())
+    }
+
+    /** [fixedRect]의 셈(사각형 둘은 화면 방향). 쪽 객체 없이 회전 행렬·크기만으로(화면의 쓰는 칸이 씀). */
+    private fun fixedRectView(rot: PMatrix, pw: Double, ph: Double, box: PRect, text: String, size: Int,
+                              rows: List<String>?): Triple<List<String>, PRect, PRect> {
+        val vis = (box * rot).normalize()
+        var w = pyMin(pyMax(vis.width, boxMinWidth(size)), pw)
         val lay = layout(text, size, w, fixed = true, rows = rows)
         w = lay.width
         val h = pyMax(vis.height + BOX_LEAD, lay.height)
-        if (h > g.ph) throw DocOpError(TOO_LONG)
-        val x0 = pyMin(pyMax(vis.x0, 0.0), g.pw - w)
-        val y0 = pyMin(pyMax(vis.y0 - BOX_LEAD, -BOX_LEAD.toDouble()), g.ph - h)
+        if (h > ph) throw DocOpError(TOO_LONG)
+        val x0 = pyMin(pyMax(vis.x0, 0.0), pw - w)
+        val y0 = pyMin(pyMax(vis.y0 - BOX_LEAD, -BOX_LEAD.toDouble()), ph - h)
         val rect = PRect(x0, y0, x0 + w, y0 + h)
         val shown = PRect(x0, pyMin(y0 + BOX_LEAD, rect.y1), rect.x1, rect.y1)
-        return Triple(lay.rows, (rect * g.der).normalize(), (shown * g.der).normalize())
+        return Triple(lay.rows, rect, shown)
     }
+
+    /**
+     * PC판 page_view._editor_top: 쓰는 칸 상자 [box](돌리기 전)에 [text]를 넣으면 글이 보이기 시작할 높이(화면 방향 pt).
+     * 빈 글·못 넣는 글이면 null. 쪽 아래 끝이면 상자 위끝보다 위가 된다(넣을 때 위로 밀림).
+     */
+    fun editorTop(rot: PMatrix, pw: Double, ph: Double, box: PRect, text: String, size: Int): Double? {
+        if (text.isBlank()) return null
+        return try { fixedRectView(rot, pw, ph, box.normalize(), text, size, null).third.y0 } catch (e: Exception) { null }
+    }
+
+    /** 쓰는 칸 손잡이 옮기기 한 번(PC판 _move_editor: [editorTop]으로 밀려 보이던 자리부터 [moveBox]). 안 움직이면 null. */
+    fun moveEditorBox(box: PRect, rot: PMatrix, pw: Double, ph: Double, text: String, size: Int, dx: Double, dy: Double): PRect? =
+        moveBox(box, rot, pw, ph, dx, dy, editorTop(rot, pw, ph, box, text, size))
 
     /** 마지막으로 넣은 글자 상자의 줄들(시험·대조용). */
     var lastRows: List<String> = emptyList()

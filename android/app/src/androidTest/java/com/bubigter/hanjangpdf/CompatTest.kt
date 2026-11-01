@@ -11,6 +11,8 @@ import com.bubigter.hanjangpdf.core.DocOps
 import com.bubigter.hanjangpdf.core.PPoint
 import com.bubigter.hanjangpdf.core.PRect
 import com.bubigter.hanjangpdf.core.Widths
+import com.bubigter.hanjangpdf.ui.AnnotTools
+import com.bubigter.hanjangpdf.ui.TextEdit
 import org.json.JSONArray
 import org.json.JSONObject
 import com.artifex.mupdf.fitz.PDFObject
@@ -86,6 +88,42 @@ class CompatTest {
                 assertNotNull("상자를 못 찾음: $op", x)
                 annots.setBoxStyle(doc, pno, x!!, optStr(op, "line"), optStr(op, "fill"), op.getDouble("width"), op.getDouble("opacity"))
                 out.put("xref", x)
+            }
+            "move_text" -> {
+                // 화면의 손잡이 옮기기와 같은 셈(AnnotTools.moveEditor가 쓰는 Annots.moveEditorBox: 밀려 보이던 자리부터)
+                // 뒤 쓰는 칸 자리로 고치기(PC판 commit_text: 자리·글이 그대로면 고치지 않음, 아니면 set_text(box=…))
+                val hit = annots.annotAt(doc, pno, pt(op.getJSONArray("at")), PDFAnnotation.TYPE_FREE_TEXT)
+                assertNotNull("옮길 글자 상자를 못 찾음: $op", hit)
+                val x = hit!!["xref"] as Int
+                val st = annots.textStyle(doc, pno, x)
+                assertEquals("옮길 상자 글", op.getString("text"), st.text)
+                val g = annots.PageGeo(annots.page(doc, pno))
+                val text = op.optString("new_text", st.text) // 쓰는 칸에서 글을 고친 뒤 옮김
+                val moved = annots.moveEditorBox(st.editBox, g.rot, g.pw, g.ph, text, st.size,
+                    op.getDouble("dx"), op.getDouble("dy")) ?: st.editBox
+                val e = TextEdit(pno, moved, x, text, st.size, st.align, st.color, st)
+                if (AnnotTools.unchanged(st, e)) out.put("xref", x).put("skipped", true)
+                else {
+                    out.put("xref", annots.setText(doc, pno, x, text, st.size, st.align, st.color, null, moved))
+                    out.put("rows", JSONArray(annots.lastRows))
+                }
+            }
+            "move_new_text" -> {
+                // 새로 끈 쓰는 칸에 글을 쓰고 넣기 전에 손잡이로 옮김(AnnotTools.moveEditor와 같은 셈) → 넣기
+                val g = annots.PageGeo(annots.page(doc, pno))
+                val box = rect(op.getJSONArray("box")).normalize()
+                val moved = annots.moveEditorBox(box, g.rot, g.pw, g.ph, op.getString("text"), op.getInt("size"),
+                    op.getDouble("dx"), op.getDouble("dy")) ?: box
+                out.put("xref", annots.addTextBox(doc, pno, moved, op.getString("text"),
+                    op.getInt("size"), op.getString("align"), op.getString("color")))
+                out.put("rows", JSONArray(annots.lastRows))
+            }
+            "set_note" -> {
+                val hit = annots.annotAt(doc, pno, pt(op.getJSONArray("at")), PDFAnnotation.TYPE_TEXT)
+                assertNotNull("메모를 못 찾음: $op", hit)
+                assertEquals(PDFAnnotation.TYPE_TEXT, hit!!["type"])
+                annots.setNoteText(doc, pno, hit["xref"] as Int, op.getString("text"))
+                out.put("xref", hit["xref"])
             }
             else -> error(k)
         }

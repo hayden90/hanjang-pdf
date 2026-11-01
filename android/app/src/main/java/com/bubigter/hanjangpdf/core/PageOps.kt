@@ -191,7 +191,7 @@ object PageOps {
                 restore.del(o, "Popup")
                 restore.del(o, "P")
                 val copy = gmap.graftObject(o)
-                arr.push(addRef(dst, copy)) // 직접 객체로 든 주석도 새 번호로
+                arr.append(addRef(dst, copy)) // 직접 객체로 든 주석도 새 번호로
             }
         }
         val ref = addRef(dst, dict)
@@ -224,8 +224,8 @@ object PageOps {
                         if (idx < 0) continue // 복사하지 않은 쪽으로 가는 링크
                         val pt = ptTimes(dest.x, dest.y, ictm)
                         val d = dst.newArray()
-                        d.push(dst.findPage(startAt + idx))
-                        d.push(dst.newName("XYZ"))
+                        d.append(dst.findPage(startAt + idx))
+                        d.append(dst.newName("XYZ"))
                         d.push(pt[0]); d.push(pt[1]); d.push(if (dest.zoom.isNaN()) 0f else dest.zoom)
                         val a = dst.newDictionary()
                         a.put("S", dst.newName("GoTo"))
@@ -237,7 +237,7 @@ object PageOps {
                 val page = dst.findPage(startAt + k)
                 var annots = page.get("Annots")
                 if (!annots.isArray) { annots = dst.newArray(); page.put("Annots", annots) }
-                for (m in made) annots.push(addRef(dst, m))
+                for (m in made) annots.append(addRef(dst, m))
             } finally {
                 sp.destroy()
             }
@@ -245,17 +245,21 @@ object PageOps {
     }
 
     /**
-     * 새 객체로 넣고 간접 참조를 돌려준다. fitz Java의 addObject는 새 번호를 만들지만 참조가 아니라 값을 돌려주고,
-     * 이미 간접 참조인 값(복사 지도의 결과)은 그대로 돌려준다. 새 번호는 맨 끝 번호라 표시 키로 맞는지 확인한다.
+     * 배열 끝에 객체를 넣는다. fitz Java의 push(PDFObject)는 쓰지 않는다: 넣으면서 넘긴 껍데기의 참조를 하나 내려,
+     * 그 껍데기가 가비지 수거될 때 배열 안 객체가 한 번 더 풀린다(MuPDF 1.28.5 JNI pushPDFObject, 8-4 판 1 고침 때
+     * GWP-ASan으로 확인). put(끝 번호)는 참조를 올려 넣기만 한다. 숫자·이름 문자열을 넣는 push는 이 문제가 없다.
+     */
+    private fun PDFObject.append(o: PDFObject) = put(size(), o)
+
+    /**
+     * 새 객체로 넣고 간접 참조를 돌려준다. 이미 간접 참조인 값(복사 지도의 결과)은 그대로 돌려준다.
+     * fitz Java의 addObject는 쓰지 않는다: 넘긴 값을 참조 수를 올리지 않고 되돌려 주어, 그 껍데기가 가비지 수거될 때
+     * 문서 안 객체가 한 번 더 풀린다(8-4 판 1 고침 때 에뮬 재현: 끼워 넣기 뒤 "cycle in page tree"·주석 수 틀림·GC 중 크래시).
      */
     private fun addRef(doc: PDFDocument, obj: PDFObject): PDFObject {
         if (obj.isIndirect) return obj
-        obj.put("HanjangTmp", true)
-        doc.addObject(obj)
-        val ref = doc.newIndirect(doc.countObjects() - 1, 0)
-        val ok = ref.get("HanjangTmp").isBoolean
-        obj.delete("HanjangTmp")
-        if (!ok) throw IllegalStateException("새 객체 번호를 찾지 못함")
+        val ref = doc.createObject()
+        ref.writeObject(obj)
         return ref
     }
 
@@ -317,7 +321,7 @@ object PageOps {
                 if (px == 0) continue
                 var kids = par.get("Kids")
                 if (!kids.isArray) { kids = src.newArray(); par.put("Kids", kids) }
-                if ((0 until kids.size()).none { kids.get(it).asIndirect() == w.asIndirect() }) kids.push(w)
+                if ((0 until kids.size()).none { kids.get(it).asIndirect() == w.asIndirect() }) kids.append(w)
                 parents[px] = Parent(leafKids(par))
             }
         }
@@ -325,7 +329,7 @@ object PageOps {
             // 간접 참조째 복사해야 자식 칸이 복사 지도에 올라 아래에서 같은 객체를 쓴다
             val tar = addRef(dst, gmap.graftObject(src.newIndirect(px, 0)))
             info.newKids = leafKids(tar)
-            acroFields.push(tar)
+            acroFields.append(tar)
         }
         for ((k, p) in pages.withIndex()) {
             val ws = widgetsOf[p] ?: continue
@@ -340,15 +344,15 @@ object PageOps {
                 val ind: PDFObject
                 if (px == 0) {
                     ind = try { addRef(dst, gmap.graftObject(w)) } catch (e: RuntimeException) { continue }
-                    tarAnnots.push(ind)
-                    acroFields.push(ind)
+                    tarAnnots.append(ind)
+                    acroFields.append(ind)
                 } else {
                     val info = parents.getValue(px)
                     val idx = info.oldKids.indexOf(w.asIndirect())
                     ind = dst.newIndirect(info.newKids[idx], 0)
-                    tarAnnots.push(ind)
+                    tarAnnots.append(ind)
                 }
-                if (isAac) co.push(ind)
+                if (isAac) co.append(ind)
             }
         }
         dedupNames(dst, acroFields)

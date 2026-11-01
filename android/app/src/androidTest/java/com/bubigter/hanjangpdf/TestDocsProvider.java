@@ -12,11 +12,16 @@ import android.provider.OpenableColumns;
 
 import java.io.ByteArrayInputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.security.MessageDigest;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Set;
 
 /**
  * 시험 전용 '다른 앱' 문서 제공자. content://com.bubigter.hanjangpdf.testdocs/<이름> 을 시험 APK의 filesDir/docs/<이름>으로
@@ -36,8 +41,23 @@ public class TestDocsProvider extends ContentProvider {
 
     @Override public String getType(Uri uri) { return "application/pdf"; }
 
+    /** 첫 쓰기 실패를 이미 낸 이름(put으로 다시 넣으면 지움). */
+    private static final Set<String> FAILED = Collections.synchronizedSet(new HashSet<>());
+
+    /**
+     * 고장 흉내(8-4 판 1 지적 1·2 시험): 이름에 "noread_"가 있으면 읽기 열기가 실패하고(쓰기는 됨),
+     * "failw1_"가 있으면 처음 한 번의 쓰기는 "wt"처럼 파일을 비운 뒤 첫 바이트를 쓸 때 실패한다(읽기 전용으로 열어 줌).
+     */
     @Override public ParcelFileDescriptor openFile(Uri uri, String mode) throws FileNotFoundException {
         File f = file(uri);
+        boolean writing = mode.contains("w");
+        if (!writing && f.getName().contains("noread_")) throw new FileNotFoundException("시험용 읽기 실패: " + f.getName());
+        if (writing && f.getName().contains("failw1_") && FAILED.add(f.getName())) {
+            if (mode.contains("t")) {
+                try { new FileOutputStream(f).close(); } catch (IOException e) { throw new FileNotFoundException(e.toString()); }
+            }
+            return ParcelFileDescriptor.open(f, ParcelFileDescriptor.MODE_READ_ONLY);
+        }
         if ("r".equals(mode) && !f.exists()) throw new FileNotFoundException(f.getName());
         return ParcelFileDescriptor.open(f, ParcelFileDescriptor.parseMode(mode));
     }
@@ -58,10 +78,12 @@ public class TestDocsProvider extends ContentProvider {
      * (실제 다른 앱이 FLAG_GRANT_WRITE_URI_PERMISSION으로 넘길 때처럼 권한 기록이 남는다).
      */
     @Override public Bundle call(String method, String arg, Bundle extras) {
+        if ("sha".equals(method)) return sha(arg);
         if (!"put".equals(method)) return null;
         try {
             Uri u = Uri.parse("content://com.bubigter.hanjangpdf.testdocs/" + arg);
             File f = file(u);
+            FAILED.remove(f.getName());
             String asset = extras.getString("asset");
             try (InputStream in = asset == null ? new ByteArrayInputStream(new byte[0]) : getContext().getAssets().open(asset);
                  OutputStream out = new FileOutputStream(f)) {
@@ -76,6 +98,27 @@ public class TestDocsProvider extends ContentProvider {
         } catch (IOException e) {
             throw new IllegalStateException(e);
         }
+    }
+
+    /** call("sha", 이름): 제공자 쪽에서 파일 SHA-256과 길이를 잰다(읽기 실패 흉내 파일도 시험이 확인할 수 있게). */
+    private Bundle sha(String name) {
+        Bundle b = new Bundle();
+        try {
+            File f = file(Uri.parse("content://com.bubigter.hanjangpdf.testdocs/" + name));
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            try (InputStream in = new FileInputStream(f)) {
+                byte[] buf = new byte[65536];
+                int n;
+                while ((n = in.read(buf)) > 0) md.update(buf, 0, n);
+            }
+            StringBuilder sb = new StringBuilder();
+            for (byte x : md.digest()) sb.append(String.format("%02x", x));
+            b.putString("sha", sb.toString());
+            b.putLong("len", f.length());
+        } catch (Exception e) {
+            b.putString("sha", "error:" + e);
+        }
+        return b;
     }
 
     @Override public Uri insert(Uri uri, ContentValues values) { return null; }

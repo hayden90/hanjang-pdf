@@ -75,6 +75,8 @@ class PagesTest {
         }
         Overwrite.hook = null
         tmp.deleteRecursively()
+        // 8-4: 복구 되돌리기가 남기는 '보관한 원본'(다음 시험·화면에 창이 뜨지 않게)
+        File(target.filesDir, "recovery_kept").deleteRecursively()
     }
 
     private fun asset(name: String, to: File = File(tmp, name)): File {
@@ -396,8 +398,8 @@ class PagesTest {
         val p = (r3 as Overwrite.Result.RestoreFailed).pending
         assertEquals(sha(b), p.beforeSha)
         assertEquals(1, Recovery.list(rec).size)
-        val copy = FaultTarget(File(tmp, "rescued.pdf"))
-        Recovery.saveCopy(p, copy)
+        val copy = FaultTarget(File(tmp, "rescued.pdf").apply { createNewFile() }) // SAF 만들기 창이 만든 빈 파일
+        assertTrue(Recovery.saveCopy(p, copy, rec) is Overwrite.Result.Ok)
         assertEquals(sha(b), sha(copy.file))
         assertTrue(Recovery.list(rec).isEmpty())
         // 원본을 읽을 수 없으면 손대지 않음

@@ -127,19 +127,34 @@ class ViewDoc internal constructor(pdf: PDFDocument) {
         OpenResult.Broken("pages")
     }
 
+    /** 쪽 회전값(PyMuPDF page.rotation과 같은 셈, [Annots.pageRotation]). 화면 좌표 ↔ 돌리기 전 쪽 좌표 변환에 쓴다. */
+    var rotations: List<Int> = emptyList()
+        private set
+
     /** 쪽 크기를 다시 잰다(쪽 작업 뒤). 실패하면 예외(부르는 쪽이 편집 전 판으로 돌아간다). */
     fun measure() {
         val n = pdf.countPages()
+        val rots = IntArray(n)
         sizes = List(n) { i ->
             val p = pdf.loadPage(i)
             try {
+                rots[i] = (p as? PDFPage)?.let { Annots.pageRotation(it) } ?: 0
                 val b = p.bounds
                 VRect(0f, 0f, b.x1 - b.x0, b.y1 - b.y0)
             } finally {
                 p.destroy()
             }
         }
+        rotations = rots.toList()
     }
+
+    /** 화면 방향 쪽 좌표(원점 0, pt) → 돌리기 전 쪽 좌표(주석 함수가 받는 좌표). */
+    fun toPage(page: Int, x: Float, y: Float): PPoint = PPoint(x.toDouble(), y.toDouble()) * PMatrix.invert(rot(page))
+
+    /** 돌리기 전 쪽 좌표 사각형 → 화면 방향 쪽 좌표(그려 보이기용). */
+    fun toView(page: Int, r: PRect): PRect = (r * rot(page)).normalize()
+
+    fun rot(page: Int): PMatrix = Annots.rotMatrix(rotations.getOrElse(page) { 0 }, sizes[page].w, sizes[page].h)
 
     /** 다른 판의 문서로 바꾼다(지난 문서는 닫는다). [EditSession]만 부른다. */
     internal fun swap(next: PDFDocument) {

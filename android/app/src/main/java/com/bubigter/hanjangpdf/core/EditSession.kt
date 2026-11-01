@@ -84,8 +84,11 @@ class EditSession(
      * 편집 하나. [op]가 실패하면 편집 전 판으로 돌아가고(문서·이력·저장 안 함 그대로) 그 오류를 다시 낸다.
      * 편집 전 사본을 되돌리기 이력으로 옮기지 못해도 편집을 취소한다(되돌리기가 직전 판을 건너뛰지 않게).
      * 쪽 크기도 다시 잰다.
+     * [measure]가 참이면(다른 PDF 끼워 넣기처럼 문서가 크게 커질 수 있는 편집) 편집 뒤 문서를 한 번 써 보아
+     * 그 크기를 [docSize]로 삼는다(큰 문서 한 단계 되돌리기·공간 확인이 바로 이 편집부터 맞게).
+     * 거짓이면 편집 전 크기를 쓴다(주석·돌리기·지우기·옮기기는 크기가 거의 그대로이고, 다음 편집의 사본이 실제 크기를 잰다).
      */
-    fun <T> edit(op: (PDFDocument) -> T): T {
+    fun <T> edit(measure: Boolean = false, op: (PDFDocument) -> T): T {
         checkUsable()
         val need = docSize * 2
         val free = freeSpace(undoDir)
@@ -109,8 +112,16 @@ class EditSession(
             if (e is Error && e !is OutOfMemoryError) throw e
             throw e as? DocOpError ?: DocOpError("편집하지 못했습니다: ${e.message}")
         }
-        // 성공: 편집 전 사본을 되돌리기 이력으로 옮긴다. 옮기지 못하면 편집을 취소하고 편집 전 판으로 돌아간다.
         val size = pre.length()
+        val newSize = if (!measure) size else try {
+            val post = File(dir, "post.pdf")
+            try { write(pdf, post); post.length() } finally { post.delete() }
+        } catch (e: Throwable) {
+            rollback(pre)
+            if (e is Error && e !is OutOfMemoryError) throw e
+            throw e as? DocOpError ?: DocOpError("편집하지 못했습니다: ${e.message}")
+        }
+        // 성공: 편집 전 사본을 되돌리기 이력으로 옮긴다. 옮기지 못하면 편집을 취소하고 편집 전 판으로 돌아간다.
         val snap = File(undoDir, "u${++seq}.pdf")
         try {
             if (fails("keep")) throw DocOpError("시험용 실패: keep")
@@ -124,7 +135,7 @@ class EditSession(
         undo.addLast(Snap(snap, size, version))
         clearRedo()
         version = nextVersion++
-        docSize = size
+        docSize = newSize
         trim()
         return result
     }

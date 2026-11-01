@@ -68,13 +68,33 @@ object Saver {
     fun copyTo(src: File, target: SaveTarget) {
         val want = sha256(src)
         try {
-            target.openWrite().use { o -> src.inputStream().use { i -> copy(i, o) } }
+            // 입력을 먼저 연다("wt"는 대상을 비우므로, 입력을 못 열면 대상에 손대지 않게)
+            src.inputStream().use { i -> target.openWrite().use { o -> copy(i, o) } }
         } catch (e: Exception) {
             throw DocOpError("파일에 쓰지 못했습니다: ${e.message}")
         }
         val got = try { target.openRead().use { sha256(it) } } catch (e: Exception) { null }
         if (got != want) throw DocOpError("쓴 파일을 다시 읽어 보니 내용이 다릅니다.")
     }
+
+    /** 대상이 비었는지: 비었으면 참, 1바이트라도 있으면 거짓, 읽을 수 없으면 null. */
+    fun isEmpty(target: SaveTarget): Boolean? =
+        try { target.openRead().use { it.read() < 0 } } catch (e: Exception) { null }
+
+    /**
+     * 사용자가 고른 대상('다른 이름으로 저장'·보관본·복구본·쪽 내보내기)에 [src]를 쓴다(검토 8-4 판 1 지적 1·2).
+     * 대상에 이미 내용이 있거나 [isSource](지금 원본)면 그냥 "wt"로 쓰지 않고 원본 덮어쓰기와 같은 경로
+     * ([Overwrite.run]: before.pdf·saving.json·실패 때 되써 넣기)로 쓴다. 빈 대상은 [copyTo](실패해도 잃을 내용이 없음).
+     * 대상을 읽을 수 없으면 내용이 있는지 모르므로 손대지 않는다(Untouched).
+     */
+    fun saveTo(src: File, target: SaveTarget, recRoot: File, title: String, isSource: Boolean = false): Overwrite.Result {
+        val empty = isEmpty(target) ?: return Overwrite.Result.Untouched(UNREADABLE)
+        if (isSource || !empty) return Overwrite.run(target, src, recRoot, title)
+        copyTo(src, target)
+        return Overwrite.Result.Ok
+    }
+
+    const val UNREADABLE = "고른 파일을 읽을 수 없어 쓰지 않았습니다(이미 있는 내용을 지킬 수 없음)."
 
     /** 64KB씩 복사하고, 파일이면 fsync한다. */
     fun copy(i: InputStream, o: OutputStream): Long {
@@ -155,9 +175,9 @@ object Overwrite {
             }
         }
         val newSha = Saver.sha256(verified)
-        val dir = File(recRoot, "s" + System.currentTimeMillis() + "_" + (0..9999).random())
-        // 도는 동안 다른 화면의 복구 확인([Recovery.list])이 이 폴더를 지우거나 묻지 않게 표시한다.
-        Recovery.begin(dir)
+        // 도는 동안 다른 화면의 복구 확인([Recovery.list])이 이 폴더를 지우거나 묻지 않게 만들기 전부터 표시한다.
+        val dir = try { Recovery.newDir(recRoot, "s", Recovery::begin, Recovery::end) }
+            catch (e: Exception) { return@with Result.Untouched(e.message ?: "") }
         try {
             runActive(target, verified, dir, title, newSha)
         } finally {
@@ -170,17 +190,21 @@ object Overwrite {
         val json = File(dir, Recovery.JSON)
         val beforeSha: String
         try {
-            dir.mkdirs()
             dir.parentFile?.let { Recovery.syncDir(it) }
             // 이번 덮기 직전 원본(열 때 사본이 아니라 지금 바이트)
             beforeSha = Recovery.writeFile(before) { o -> target.openRead().use { Saver.copy(it, o) } }
             step("before")
             Recovery.writeJson(json, JSONObject().put("uri", target.id).put("title", title)
-                .put("before", beforeSha).put("new", newSha).put("time", System.currentTimeMillis()))
+                .put("before", beforeSha).put("new", newSha).put("size", before.length()).put("time", System.currentTimeMillis()))
             step("json")
         } catch (e: Exception) {
             dir.deleteRecursively()
             return Result.Untouched(e.message ?: "")
+        }
+        // 쓸 파일을 먼저 연다("wt"가 원본을 비우므로, 그 뒤에 입력을 못 열면 원본만 비게 된다).
+        val input = try { verified.inputStream() } catch (e: Exception) {
+            Recovery.finish(Recovery.Pending(dir, target.id, title, beforeSha, newSha))
+            return Result.Untouched(e.message ?: e.toString())
         }
         // "wt" 열기 자체가 실패하면 원본이 그대로인지 보고, 그대로면 되써 넣지 않는다(원본이 깨졌다고 잘못 알리지 않게).
         val out = try {
@@ -188,15 +212,18 @@ object Overwrite {
         } catch (e: Exception) {
             val now = try { target.openRead().use { Saver.sha256(it) } } catch (x: Exception) { null }
             if (now == beforeSha) {
+                input.close()
                 Recovery.finish(Recovery.Pending(dir, target.id, title, beforeSha, newSha))
                 return Result.Untouched(e.message ?: e.toString())
             }
             null
         }
-        val reason = if (out == null) "원본을 쓰려고 열지 못했습니다." else try {
-            out.use { o ->
-                step("write")
-                verified.inputStream().use { i -> Saver.copy(i, o) }
+        val reason = if (out == null) { input.close(); "원본을 쓰려고 열지 못했습니다." } else try {
+            input.use { i ->
+                out.use { o ->
+                    step("write")
+                    Saver.copy(i, o)
+                }
             }
             step("written")
             val got = target.openRead().use { Saver.sha256(it) }
@@ -221,15 +248,40 @@ object Recovery {
     const val JSON = "saving.json"
     const val BEFORE = "before.pdf"
 
-    /** 끝나지 않은 덮어쓰기 하나(saving.json과 그 before.pdf). */
-    class Pending(val dir: File, val uri: String, val title: String, val beforeSha: String, val newSha: String) {
+    const val CURRENT = "current.pdf"
+    const val INFO = "info.json"
+
+    /** 끝나지 않은 덮어쓰기 하나(saving.json과 그 before.pdf). [size]는 덮기 전 판의 크기(모르면 -1). */
+    class Pending(val dir: File, val uri: String, val title: String, val beforeSha: String, val newSha: String,
+                  val size: Long = -1) {
         val before get() = File(dir, BEFORE)
+    }
+
+    /** '원본 되돌리기' 직전에 따로 보관한 그때의 원본(current.pdf). 사용자가 다른 이름으로 저장하거나 지운다. */
+    class Kept(val dir: File, val title: String, val size: Long, val time: Long) {
+        val file get() = File(dir, CURRENT)
+    }
+
+    /**
+     * [root] 안에 겹치지 않는 새 폴더를 만든다(mkdir이 참일 때까지 이름을 바꿔 본다).
+     * 같은 밀리초·같은 난수로 남의 기록 폴더를 같이 쓰지 않게 한다.
+     */
+    fun newDir(root: File, prefix: String, pick: (File) -> Boolean = { true }, unpick: (File) -> Unit = {}): File {
+        root.mkdirs()
+        repeat(100) {
+            val d = File(root, prefix + System.currentTimeMillis() + "_" + (0..99999).random())
+            if (!pick(d)) return@repeat
+            if (d.mkdir()) return d
+            unpick(d)
+        }
+        throw DocOpError("기록 폴더를 만들지 못했습니다.")
     }
 
     /** 이 프로세스에서 지금 도는 덮어쓰기 폴더(화면이 둘일 때 다른 화면의 [list]가 건너뛴다). */
     private val active = HashSet<String>()
 
-    fun begin(dir: File) { synchronized(active) { active.add(dir.absolutePath) } }
+    /** 표시한다. 이미 다른 덮어쓰기가 표시한 폴더면 거짓(그 표시를 지우지 않게). */
+    fun begin(dir: File): Boolean = synchronized(active) { active.add(dir.absolutePath) }
     fun end(dir: File) { synchronized(active) { active.remove(dir.absolutePath) } }
     private fun isActive(dir: File) = synchronized(active) { dir.absolutePath in active }
 
@@ -247,13 +299,17 @@ object Recovery {
             val tmp = File(d, JSON + ".tmp")
             val text = when {
                 j.exists() -> try { j.readText() } catch (e: Exception) { continue }
-                tmp.exists() -> try { tmp.readText().also { JSONObject(it) } } catch (e: Exception) { null }
+                // 읽지 못하면(권한·입출력 오류) 쓰다 만 것인지 모르므로 지우지 않고 건너뛴다(검토 8-4 판 3에서 같이 훑음).
+                // 읽히는데 JSON이 아니면 fsync 전에 멈춘 쓰다 만 것(json을 쓰기 전이라 원본에 손대지 않음)이라 지운다.
+                tmp.exists() -> (try { tmp.readText() } catch (e: Exception) { continue })
+                    .let { t -> try { JSONObject(t); t } catch (e: Exception) { null } }
                 else -> null
             }
             if (text == null) { d.deleteRecursively(); continue }
             try {
                 val o = JSONObject(text)
-                val p = Pending(d, o.getString("uri"), o.optString("title"), o.getString("before"), o.getString("new"))
+                val p = Pending(d, o.getString("uri"), o.optString("title"), o.getString("before"), o.getString("new"),
+                    o.optLong("size", -1))
                 if (p.before.exists() && Saver.sha256(p.before) == p.beforeSha) out.add(p)
             } catch (e: Exception) {
                 // 읽을 수 없는 표시 파일은 건드리지 않는다
@@ -297,17 +353,24 @@ object Recovery {
      * before.pdf를 원본에 되써 넣고 해시로 확인한다. 성공하면 json 다음 before 순서로 지운다.
      * before.pdf를 먼저 열고 해시를 확인한 뒤에야 원본을 연다("wt"가 원본을 비우므로, before가 없거나 다르면 원본에 손대지 않는다).
      * 같은 원본 잠금 안에서 하고, 그사이 다른 화면이 이미 처리한 기록이면 원본에 손대지 않고 거짓([isOpen]으로 가린다).
+     * [keepRoot]를 주면(사용자가 고른 '원본 되돌리기') 덮기 전에 지금 원본이 덮기 전 판과 다를 때 그 바이트를
+     * [keepRoot]에 current.pdf로 fsync해 보관한다. 같은 파일이 다른 URI 문자열로 들어와 그사이 정상 저장된 새 판일 수
+     * 있기 때문이다(잠금·미해결 검사는 URI 문자열로만 가려진다). 지금 원본을 읽거나 보관하지 못하면 원본에 손대지 않고
+     * 기록도 그대로 둔 채 [KeepFailed]를 던진다(검토 8-4 판 3 HIGH: 예전에는 읽기 실패를 삼키고 보관 없이 덮었다).
      */
-    fun restore(p: Pending, target: SaveTarget): Boolean = UriLock.with(p.uri) {
+    fun restore(p: Pending, target: SaveTarget, keepRoot: File? = null): Boolean = UriLock.with(p.uri) {
         if (!isOpen(p)) return@with false
         val ok = try {
             p.before.inputStream().use { i ->
                 if (Saver.sha256(p.before) != p.beforeSha) false
                 else {
+                    if (keepRoot != null) keepCurrent(p, target, keepRoot)
                     target.openWrite().use { o -> Saver.copy(i, o) }
                     target.openRead().use { Saver.sha256(it) } == p.beforeSha
                 }
             }
+        } catch (e: KeepFailed) {
+            throw e
         } catch (e: Exception) {
             false
         }
@@ -315,10 +378,77 @@ object Recovery {
         ok
     }
 
-    /** before.pdf를 다른 곳에 저장(확인까지). 성공하면 표시를 지운다. */
-    fun saveCopy(p: Pending, target: SaveTarget) = UriLock.with(p.uri) {
-        Saver.copyTo(p.before, target)
-        finish(p)
+    /** 되돌리기 직전 지금 원본을 읽거나 보관하지 못했다(원본·기록 그대로). */
+    class KeepFailed(message: String) : DocOpError(message)
+
+    /**
+     * 지금 원본이 덮기 전 판과 다르면 [keepRoot]/k…/current.pdf(+info.json)로 보관한다.
+     * 읽을 수 없으면 덮기 전 판인지 모르므로(보관할 것이 없는 게 아니다) [KeepFailed]. 보관에 실패해도 [KeepFailed].
+     */
+    private fun keepCurrent(p: Pending, target: SaveTarget, keepRoot: File) {
+        val now = try { target.openRead().use { Saver.sha256(it) } }
+            catch (e: Exception) { throw KeepFailed("지금 원본을 읽지 못했습니다: ${e.message}") }
+        if (now == p.beforeSha) return
+        // 쓰는 동안 다른 화면의 [kept]가 info.json 없는 이 폴더를 쓰다 만 것으로 보고 지우지 않게 표시한다(검토 판 1 LOW)
+        val d = try { newDir(keepRoot, "k", ::begin, ::end) }
+            catch (e: Exception) { throw KeepFailed("지금 원본을 보관할 폴더를 만들지 못했습니다: ${e.message}") }
+        try {
+            val f = File(d, CURRENT)
+            val sha = writeFile(f) { o -> target.openRead().use { Saver.copy(it, o) } }
+            if (sha != now) throw DocOpError("보관한 원본이 다릅니다.")
+            writeJson(File(d, INFO), JSONObject().put("uri", p.uri).put("title", p.title).put("size", f.length())
+                .put("sha", sha).put("time", System.currentTimeMillis()))
+        } catch (e: Exception) {
+            d.deleteRecursively()
+            throw KeepFailed("지금 원본을 보관하지 못했습니다: ${e.message}")
+        } finally {
+            end(d)
+        }
+    }
+
+    /** 보관한 원본 목록(오래된 것부터). info.json이 없으면 쓰다 만 것이라 지운다(이 프로세스에서 지금 쓰는 폴더는 건너뜀). */
+    fun kept(keepRoot: File): List<Kept> {
+        val out = ArrayList<Kept>()
+        for (d in keepRoot.listFiles()?.sortedBy { it.name } ?: emptyList()) {
+            if (!d.isDirectory || isActive(d)) continue
+            val info = File(d, INFO)
+            if (!info.exists() || !File(d, CURRENT).exists()) {
+                if (!File(d, INFO + ".tmp").exists()) d.deleteRecursively()
+                continue
+            }
+            try {
+                val o = JSONObject(info.readText())
+                out.add(Kept(d, o.optString("title"), o.optLong("size", -1), o.optLong("time")))
+            } catch (e: Exception) {
+                // 읽을 수 없는 보관본은 건드리지 않는다
+            }
+        }
+        return out
+    }
+
+    /**
+     * 보관한 원본을 고른 곳에 저장(확인까지)하고, 성공하면 지운다. 고른 곳에 내용이 있으면 덮기 보호 경로([Saver.saveTo]).
+     * Ok가 아니면 보관본은 그대로 둔다.
+     */
+    fun saveKept(k: Kept, target: SaveTarget, recRoot: File): Overwrite.Result {
+        val r = Saver.saveTo(k.file, target, recRoot, k.title)
+        if (r is Overwrite.Result.Ok) k.dir.deleteRecursively()
+        return r
+    }
+
+    fun dropKept(k: Kept) { k.dir.deleteRecursively() }
+
+    /**
+     * before.pdf를 고른 곳에 저장(확인까지). 성공하면 표시를 지운다. 고른 곳에 내용이 있으면 덮기 보호 경로([Saver.saveTo]).
+     * p.uri 잠금은 잡지 않는다(대상 잠금과 겹쳐 잡지 않게). 그사이 다른 화면이 이 기록을 정리해 before.pdf가 지워지면
+     * 대상에 손대기 전에 실패하거나(Untouched), 이미 연 파일은 끝까지 읽힌다. 쓴 내용은 해시로 확인한다.
+     */
+    fun saveCopy(p: Pending, target: SaveTarget, recRoot: File): Overwrite.Result {
+        if (!isOpen(p) || !p.before.exists()) throw DocOpError("복구본이 이미 정리됐습니다.")
+        if (Saver.sha256(p.before) != p.beforeSha) throw DocOpError("복구본이 처음과 다릅니다.")
+        val r = Saver.saveTo(p.before, target, recRoot, p.title)
+        if (r is Overwrite.Result.Ok) finish(p)
+        return r
     }
 
     /** 원본이 멀쩡해 물을 필요가 없을 때 정리. */
