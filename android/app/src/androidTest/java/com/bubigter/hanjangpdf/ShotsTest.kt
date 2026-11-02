@@ -44,11 +44,16 @@ class ShotsTest {
     }
 
     @Test fun shots() {
-        val name = InstrumentationRegistry.getArguments().getString("shots")
+        val args = InstrumentationRegistry.getArguments()
+        val name = args.getString("shots")
+        // 스토어 사진용(8-6): -e shotsAsset <시험 자산 PDF>, -e shotsWait <찍기 전 기다림 ms>(쪽 그림이 다 들어오게)
+        val asset = args.getString("shotsAsset") ?: "annots_base.pdf"
+        val wait = args.getString("shotsWait")?.toLongOrNull() ?: 700L
         assumeTrue("화면 사진은 -e shots <이름>일 때만", !name.isNullOrBlank())
         val dir = File(target.filesDir, "ui_shots/$name").apply { deleteRecursively(); mkdirs() }
         fun shot(n: String) {
-            rule.waitForIdle(); instr.waitForIdleSync(); Thread.sleep(700)
+            // 쪽 그림은 화면이 멈춘 뒤 80ms 기다렸다 그린다(PdfView). 시험 시계를 그만큼 넘겨야 그림이 들어온다
+            rule.mainClock.advanceTimeBy(200); rule.waitForIdle(); instr.waitForIdleSync(); Thread.sleep(wait)
             val b = instr.uiAutomation.takeScreenshot()!!
             File(dir, "$n.png").outputStream().use { b.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
         }
@@ -59,7 +64,7 @@ class ShotsTest {
         ActivityScenario.launch(MainActivity::class.java).use { shot("1_empty") }
 
         val doc = "shots.pdf"
-        val cmd = "content call --uri content://com.bubigter.hanjangpdf.testdocs --method put --arg $doc --extra write:b:true --extra asset:s:annots_base.pdf"
+        val cmd = "content call --uri content://com.bubigter.hanjangpdf.testdocs --method put --arg $doc --extra write:b:true --extra asset:s:$asset"
         ParcelFileDescriptor.AutoCloseInputStream(instr.uiAutomation.executeShellCommand(cmd)).bufferedReader().readText()
         val view = Intent(Intent.ACTION_VIEW).setDataAndType(Uri.parse("content://com.bubigter.hanjangpdf.testdocs/$doc"), "application/pdf")
             .setClassName(target, MainActivity::class.java.name).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)

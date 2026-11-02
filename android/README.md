@@ -21,15 +21,25 @@ sdk.dir=/경로/Android/sdk
 ```
 cd android
 ./gradlew assembleDebug          # app/build/outputs/apk/debug/app-debug.apk
-./gradlew assembleRelease        # 서명 설정은 들어 있지 않습니다(서명하지 않은 APK)
+./gradlew bundleRelease          # 플레이에 올릴 AAB(app/build/outputs/bundle/release/app-release.aab)
 ```
+
+출시 서명: 키 자리와 비밀번호는 저장소에 두지 않고 빌드할 때 넘깁니다. 아무것도 넘기지 않으면 서명하지 않은 release가 나옵니다.
+
+```
+./gradlew bundleRelease -PhanjangUploadEnv=/경로/업로드키.env
+```
+
+env 파일(저장소 밖, 권한 600)에는 `HANJANG_UPLOAD_STORE_FILE`·`HANJANG_UPLOAD_KEY_ALIAS`·`HANJANG_UPLOAD_STORE_PASSWORD`·
+`HANJANG_UPLOAD_KEY_PASSWORD`를 `이름=값` 줄로 적습니다(같은 이름의 환경 변수로 줘도 됩니다). 일부만 있으면 빌드가 멈춥니다.
+release 빌드는 병합 매니페스트를 검사해(`releaseManifestCheck`) 정하지 않은 권한이나 밖에 열린 구성 요소가 있으면 멈춥니다.
 
 - Gradle 9.8.2(래퍼가 받음), Android Gradle Plugin 9.4.0, Kotlin·Compose(BOM 2025.10.00)
 - minSdk 26(안드로이드 8.0), targetSdk 36
 - 권한: 없음. 인터넷·저장소 권한을 쓰지 않고, 파일은 시스템 파일 고르기 창(SAF)으로만 엽니다.
 - 정보 화면의 부품 고지(`assets/about/notices.tsv`)는 빌드할 때 이 빌드의 런타임 의존성에서 자동으로 만듭니다.
-  라이선스를 모르는 부품이 들어오면 빌드가 멈춥니다. 그때는 `app/build.gradle.kts`의 `AboutAssetsTask`에
-  그 부품의 라이선스를 더합니다.
+  `licenses/modules.tsv`(그룹:모듈과 라이선스, 판 무관)에 없는 부품이 들어오면 빌드가 멈춥니다. 그때는 그 부품의
+  라이선스를 확인해 이 파일에 한 줄 더합니다.
 
 ## 소스 판(태그)
 

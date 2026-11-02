@@ -141,4 +141,31 @@ class KeysTest {
             rule.onNodeWithTag("thumb1", useUnmergedTree = true).fetchSemanticsNode().config.getOrNull(SemanticsProperties.Selected))
         assertTrue("문서가 바뀜", onMain { m.dirty })
     }
+
+    /** 8-5 판 1 LOW: 다른 편집이 도는 중이라 쪽 옮기기가 막히면 사용자 동작은 거짓(TalkBack이 '안 됨'으로 알림). */
+    @Test fun pageListMoveBlockedReturnsFalse() {
+        val m = open()
+        rule.onNodeWithTag("pagesToggle").performSemanticsAction(SemanticsActions.OnClick)
+        rule.waitForIdle()
+        val t0 = rule.onNodeWithTag("thumb0", useUnmergedTree = true)
+        t0.requestFocus()
+        t0.performKeyInput { pressKey(Key.Spacebar) }; rule.waitForIdle()
+        // MuPDF 실행기를 막고 편집 하나를 걸어 '처리 중'으로 만든다
+        val go = java.util.concurrent.CountDownLatch(1)
+        val inside = java.util.concurrent.CountDownLatch(1)
+        Thread { runBlocking(m.mupdf) { inside.countDown(); go.await() } }.start()
+        inside.await()
+        try {
+            onMain { m.movePages(listOf(1), 0) }
+            assertTrue("처리 중", onMain { m.busy })
+            val acts = t0.fetchSemanticsNode().config.getOrNull(SemanticsActions.CustomActions).orEmpty()
+            val a = acts.first { it.label == str(R.string.move_later) }
+            var r = true
+            rule.runOnIdle { r = a.action() }
+            assertEquals("막힌 옮기기는 거짓", false, r)
+        } finally {
+            go.countDown()
+        }
+        waitUntil("앞 편집 끝") { !m.busy }
+    }
 }

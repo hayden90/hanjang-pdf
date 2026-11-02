@@ -497,11 +497,11 @@ class ViewerModel(app: Application) : AndroidViewModel(app) {
 
     /** 편집 하나를 MuPDF 실행기에서 돌린다. 실패하면 [EditSession]이 편집 전 판으로 돌려놓고 알린다. */
     private fun runEdit(focus: (Int) -> Int?, op: (com.artifex.mupdf.fitz.PDFDocument) -> Int, measure: Boolean = false,
-                        annot: Boolean = false, done: (Int) -> Unit = {}) {
-        val s = session ?: return
-        if (busy) return
+                        annot: Boolean = false, done: (Int) -> Unit = {}): Boolean {
+        val s = session ?: return false
+        if (busy) return false
         // 쪽 작업은 쓰는 칸·메모 창이 떠 있으면 하지 않는다(주석 편집은 그 칸을 확인하는 일이라 [runAnnotEdit]만 지남)
-        if (!annot && inputOpen()) return
+        if (!annot && inputOpen()) return false
         working = true
         viewModelScope.launch {
             val r = withContext(mupdf) {
@@ -516,6 +516,7 @@ class ViewerModel(app: Application) : AndroidViewModel(app) {
             }
             working = false
         }
+        return true
     }
 
     /**
@@ -560,11 +561,14 @@ class ViewerModel(app: Application) : AndroidViewModel(app) {
         runEdit({ maxOf(0, first - 1) }, { d -> PageOps.delete(d, pages) }) { done() }
     }
 
-    /** 고른 쪽을 원래 번호 기준 [to] 쪽 앞으로. 아무것도 안 바뀌면 하지 않는다. */
-    fun movePages(pages: Collection<Int>, to: Int, done: (Int) -> Unit = {}) {
-        val d = doc ?: return
-        if (pages.isEmpty() || PageOps.isNoopMove(d.pageCount, pages, to)) return
-        runEdit({ it }, { pdf -> PageOps.move(pdf, pages, to) }, done = done)
+    /**
+     * 고른 쪽을 원래 번호 기준 [to] 쪽 앞으로. 아무것도 안 바뀌면 하지 않는다.
+     * 옮기기를 시작했으면 참(처리 중·입력 창·제자리라 아무것도 안 했으면 거짓, 8-5 판 1 LOW).
+     */
+    fun movePages(pages: Collection<Int>, to: Int, done: (Int) -> Unit = {}): Boolean {
+        val d = doc ?: return false
+        if (pages.isEmpty() || PageOps.isNoopMove(d.pageCount, pages, to)) return false
+        return runEdit({ it }, { pdf -> PageOps.move(pdf, pages, to) }, done = done)
     }
 
     fun undo() = history(true)

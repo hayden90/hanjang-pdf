@@ -174,14 +174,13 @@ fun PageList(
 
 /**
  * 고른 쪽 묶음을 한 칸 앞([dir] -1)·뒤(+1)로(끌어 옮기기와 같은 [ViewerModel.movePages], 원래 번호 기준 '그 쪽 앞').
- * 더 갈 곳이 없으면 거짓.
+ * 더 갈 곳이 없거나 처리 중이라 막혔으면 거짓(8-5 판 1 LOW).
  */
 private fun moveBy(model: ViewerModel, sel: Set<Int>, dir: Int, count: Int, onSelect: (Set<Int>) -> Unit): Boolean {
     if (sel.isEmpty()) return false
     val to = if (dir < 0) sel.min() - 1 else sel.max() + 2
     if (to < 0 || to > count) return false
-    model.movePages(sel, to) { pos -> onSelect((pos until pos + sel.size).toSet()) }
-    return true
+    return model.movePages(sel, to) { pos -> onSelect((pos until pos + sel.size).toSet()) }
 }
 
 /** 손가락 자리의 쪽 번호. */

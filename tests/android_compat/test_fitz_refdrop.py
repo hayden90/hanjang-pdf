@@ -4,7 +4,7 @@ fitz Java의 PDFDocument.addObject와 PDFObject.push(PDFObject)는 넘긴 껍데
 가비지 수거될 때 문서 안 객체가 한 번 더 풀려 끼워 넣기·내보내기 뒤 "cycle in page tree"나 앱 죽음이 난다
 (8-4 판 1 고침). 대신 PageOps.addRef(createObject+writeObject)와 append(put 끝 번호)를 쓴다.
 
-- addObject( 는 주석 밖에서 한 번도 쓰지 않는다. 메서드 참조(::addObject, ::push)도 쓰지 않는다(8-4 판 3 LOW).
+- addObject( 는(백틱으로 감싸도) 주석 밖에서 한 번도 쓰지 않는다. 메서드 참조(::addObject, ::push)도 쓰지 않는다(8-4 판 3 LOW).
 - push( 는(점 없이 부르거나 줄을 나눠도) 소스만으로 인자 형을 알 수 없어, 숫자를 넣는 것으로 확인한 줄만 허용 목록에 둔다.
   새 push를 넣으면 이 검사가 실패한다: 숫자면 목록에 더하고, 객체면 append로 바꾼다.
 
@@ -24,6 +24,10 @@ NUMERIC_PUSH = {
     ("PageOps.kt", "for (v in r) rect.push(v)"),  # FloatArray 사각형
     ("PageOps.kt", "repeat(3) { c.push(0.8f) }"),
 }
+
+# 이름을 백틱으로 감싸도(pdf.`addObject`(o)) 걸리게(8-5 판 1 MEDIUM)
+ADD_OBJECT = r"(?<![\w$])`?addObject`?\s*\("
+PUSH_CALL = r"(?<![\w$])`?push`?\s*\("
 
 
 def _strip_code(text):
@@ -110,7 +114,7 @@ def _sources():
 
 def test_no_add_object():
     bad = [f"{p.relative_to(SRC)}:{no}: {line.strip()}"
-           for p in _sources() for no, line in _matches(p, r"\baddObject\s*\(")]
+           for p in _sources() for no, line in _matches(p, ADD_OBJECT)]
     assert not bad, "fitz addObject는 참조를 내립니다. PageOps.addRef를 쓰세요:\n" + "\n".join(bad)
 
 
@@ -124,8 +128,16 @@ def test_push_only_numbers():
     bad = []
     for p in _sources():
         # 점 없이 부르는 push(with·apply 안), 이름을 `push`로 감싼 것, 줄을 나눈 push( 도 잡는다(8-5)
-        for no, line in _matches(p, r"(?<![\w$])`?push`?\s*\("):
+        for no, line in _matches(p, PUSH_CALL):
             if (p.name, line.strip()) not in NUMERIC_PUSH:
                 bad.append(f"{p.relative_to(SRC)}:{no}: {line.strip()}")
     assert not bad, ("PDFObject를 넘기는 push는 참조를 내립니다. append를 쓰거나, 숫자만 넣는 줄이면 "
                      "NUMERIC_PUSH에 더하세요:\n" + "\n".join(bad))
+
+
+def test_patterns_catch_backticks(tmp_path):
+    """8-5 판 1 MEDIUM: 이름을 백틱으로 감싼 호출(pdf.`addObject`(o), a.`push`(o))도 걸린다."""
+    f = tmp_path / "X.kt"
+    f.write_text("fun f() {\n    pdf.`addObject`(obj)\n    a.`push`(o)\n    pdf.addObject (o)\n}\n", encoding="utf-8")
+    assert [no for no, _ in _matches(f, ADD_OBJECT)] == [2, 4]
+    assert [no for no, _ in _matches(f, PUSH_CALL)] == [3]
