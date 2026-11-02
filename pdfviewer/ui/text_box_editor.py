@@ -2,6 +2,7 @@
 
 넣기(Ctrl+Enter 또는 '넣기' 단추, 상자 밖을 누름)하면 committed, Esc·'취소'면 cancelled를 낸다.
 막대 왼쪽 손잡이(✥)를 끌면 dragged(dx, dy)를 내고, PageView가 상자 자리를 옮겨 다시 놓는다.
+칸 오른쪽 아래 손잡이(◢)를 끌면 resized(dx, dy)를 내고, PageView가 상자 크기를 바꿔 다시 놓는다.
 상자 자리(rect)는 화면(쪽 위젯) 좌표이고, 배율이 바뀌면 PageView가 place()로 다시 놓는다.
 """
 from __future__ import annotations
@@ -106,10 +107,26 @@ class _Grip(QLabel):
         self._last = None
 
 
+class _Sizer(_Grip):
+    """쓰는 칸 오른쪽 아래 모서리에서 끌어 상자 크기를 바꾸는 손잡이."""
+    SIDE = 14
+
+    def __init__(self, parent: QWidget):
+        super().__init__()
+        self.setParent(parent)
+        self.setText("◢")
+        self.setCursor(QCursor(Qt.CursorShape.SizeFDiagCursor))
+        self.setToolTip(tr("끌어서 크기 바꾸기"))
+        self.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignBottom)
+        self.setStyleSheet("QLabel { color: #2a6fdb; background: transparent; padding: 0; font-size: 11px; }")
+        self.setFixedSize(self.SIDE, self.SIDE)
+
+
 class TextBoxEditor(QObject):
     committed = Signal(str, int, str, str)  # 글자, 크기, 정렬, 색
     cancelled = Signal()
     dragged = Signal(float, float)  # 손잡이로 끈 양(쪽 위젯 좌표)
+    resized = Signal(float, float)  # 크기 손잡이로 끈 양(쪽 위젯 좌표)
 
     def __init__(self, page_widget: QWidget, text: str = "", size=None, align=None, color=None):
         super().__init__(page_widget)
@@ -145,6 +162,8 @@ class TextBoxEditor(QObject):
         self.grip = _Grip()
         self.grip.dragged.connect(self._on_grip)
         lay.addWidget(self.grip)
+        self.sizer = _Sizer(page_widget)
+        self.sizer.dragged.connect(self._on_sizer)
         self.size = QSpinBox(minimum=TEXT_MIN, maximum=TEXT_MAX, suffix=" pt")
         self.size.setValue(size or last_style["size"])
         self.size.valueChanged.connect(self._restyle)
@@ -174,6 +193,10 @@ class TextBoxEditor(QObject):
     def _on_grip(self, dx: float, dy: float) -> None:
         self.dragged.emit(dx, dy)
         self.edit.setFocus()  # 옮긴 뒤 바로 이어 쓰게
+
+    def _on_sizer(self, dx: float, dy: float) -> None:
+        self.resized.emit(dx, dy)
+        self.edit.setFocus()
 
     # ── 모양 ──
     def set_color(self, hexv: str) -> None:
@@ -260,6 +283,8 @@ class TextBoxEditor(QObject):
             by = g.bottom() + BAR_GAP
         bx = min(max(g.x(), 0), max(self.host.width() - bw, 0))
         self.bar.setGeometry(int(bx), int(by), bw, bh)
+        # 크기 손잡이는 글 칸 오른쪽 아래 모서리 안쪽에
+        self.sizer.move(g.right() + 1 - self.sizer.width(), g.bottom() + 1 - self.sizer.height())
 
     def _set_wrap(self, w: float) -> None:
         """실제 상자와 같은 폭에서 줄을 바꾸고(annots._layout: 안쪽 폭 = 폭 - (크기+8), 글자 폭 1.15배로 잼),
@@ -320,6 +345,8 @@ class TextBoxEditor(QObject):
         self.bar.show()
         self.bar.raise_()
         self.edit.raise_()
+        self.sizer.show()
+        self.sizer.raise_()
         self.edit.setFocus()
         self.edit.moveCursor(QTextCursor.MoveOperation.End)
 
@@ -364,6 +391,6 @@ class TextBoxEditor(QObject):
         self.cancelled.emit()
 
     def _close(self) -> None:
-        for w in (self.edit, self.bar):
+        for w in (self.edit, self.bar, self.sizer):
             w.hide()
             w.deleteLater()

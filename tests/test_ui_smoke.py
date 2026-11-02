@@ -1674,3 +1674,194 @@ def test_editor_grip_moves_box_pushed_up_at_page_bottom(win, tmp_path):
     (a,) = list(page.annots())
     shown = annots.text_style(t.d.doc, 0, a.xref)["edit_box"]
     assert abs(shown.y0 - (y0 - 20)) < 3
+
+
+def _drag_sizer(ed, dx, dy):
+    """쓰는 칸 오른쪽 아래 크기 손잡이를 끈다(손잡이도 따라 움직이므로 한 번에 끈다)."""
+    from PySide6.QtTest import QTest
+    s = ed.sizer
+    c = s.rect().center()
+    QTest.mousePress(s, Qt.MouseButton.LeftButton, pos=c)
+    QTest.mouseMove(s, c + QPoint(dx, dy))
+    QTest.mouseRelease(s, Qt.MouseButton.LeftButton, pos=c)
+    pump()
+
+
+def test_editor_sizer_resizes_new_box_and_keeps_size_after_commit(win, tmp_path):
+    """오른쪽 아래 손잡이를 끌면 상자 너비·높이가 바뀌고, 넣은 주석 상자도 그 크기를 지켜야."""
+    import pymupdf
+    from pdfviewer.core import annots
+    win.open_path(_annot_pdf(tmp_path)); pump()
+    t = win.tab()
+    z = t.view.zoom
+    t.view.open_text_editor(0, pymupdf.Rect(100, 100, 300, 140), text="RESIZE ME", size=14, align="left"); pump()
+    ed = t.view._editor
+    assert ed.sizer.toolTip() == "끌어서 크기 바꾸기"
+    assert ed.sizer.cursor().shape() == Qt.CursorShape.SizeFDiagCursor
+    g0 = ed.edit.geometry()
+    _drag_sizer(ed, 60, 80)
+    g1 = ed.edit.geometry()
+    assert abs(g1.width() - (g0.width() + 60)) <= 1 and abs(g1.height() - (g0.height() + 80)) <= 1
+    assert g1.topLeft() == g0.topLeft()  # 왼쪽 위는 그대로
+    # 손잡이는 바뀐 칸의 오른쪽 아래 모서리에 붙어 있어야
+    sg = ed.sizer.geometry()
+    assert abs(sg.right() - g1.right()) <= 1 and abs(sg.bottom() - g1.bottom()) <= 1
+    box = t.view._editor_at[1]
+    assert abs(box.width - (200 + 60 / z)) < 0.5
+    ed.commit(); pump()
+    page = t.d.doc[0]
+    (a,) = list(page.annots())
+    st = annots.text_style(t.d.doc, 0, a.xref)
+    eb = st["edit_box"]
+    assert abs(eb.x0 - 100) < 1 and abs(eb.y0 - 100) < 1
+    assert abs(eb.width - (200 + 60 / z)) < 1 and abs(eb.height - g1.height() / z) < 1
+    # 주석 상자도 사용자가 키운 높이(숨은 앞 줄 포함)를 지킨다
+    assert abs(a.rect.height - (g1.height() / z + annots.BOX_LEAD)) < 1
+    assert abs(a.rect.width - (200 + 60 / z)) < 1
+
+
+def test_editor_sizer_does_not_shrink_below_minimum(win, tmp_path):
+    """너비는 최소 폭 아래로, 높이는 글이 다 들어가는 높이 아래로 줄지 않고, 쪽 밖으로도 나가지 않아야."""
+    import pymupdf
+    from pdfviewer.core import annots
+    win.open_path(_annot_pdf(tmp_path)); pump()
+    t = win.tab()
+    z = t.view.zoom
+    text = "ONE\nTWO\nTHREE"
+    t.view.open_text_editor(0, pymupdf.Rect(100, 100, 300, 200), text=text, size=14, align="left"); pump()
+    ed = t.view._editor
+    _drag_sizer(ed, -5000, -5000)
+    box = t.view._editor_at[1]
+    assert box.width >= annots.box_min_width(14) - 0.01
+    assert box.height * z >= ed.edit.document().size().height() + 4 - 1  # 세 줄이 다 보임
+    assert ed.edit.geometry().height() <= box.height * z + 1  # 칸이 상자보다 커지지 않음(손잡이가 끈 자리에)
+    assert "".join(ed.visual_rows()) == "ONETWOTHREE"  # 최소 폭이면 긴 낱말은 꺾이되 글은 다 보임
+    _drag_sizer(ed, 5000, 5000)
+    box = t.view._editor_at[1]
+    pr = t.d.doc[0].rect
+    assert box.x1 <= pr.x1 + 0.01 and box.y1 <= pr.y1 + 0.01
+    ed.commit(); pump()
+    (a,) = list(t.d.doc[0].annots())
+    assert a.info["content"] == text
+
+
+def test_editor_sizer_tallest_box_still_commits(win, tmp_path):
+    """쪽 아래 끝까지 키운 상자도 넣을 수 있어야(숨은 앞 줄 BOX_LEAD 때문에 쪽보다 높아져 거부되면 안 됨, rev14 판 1 HIGH)."""
+    import pymupdf
+    from pdfviewer.core import annots
+    win.open_path(_annot_pdf(tmp_path)); pump()
+    t = win.tab()
+    t.view.open_text_editor(0, pymupdf.Rect(100, 10, 300, 50), text="RESIZE", size=14, align="left"); pump()
+    ed = t.view._editor
+    _drag_sizer(ed, 0, 5000)
+    page = t.d.doc[0]
+    box = t.view._editor_at[1]
+    assert box.height + annots.BOX_LEAD <= page.rect.height + 0.01
+    ed.commit(); pump()
+    assert t.view._editor is None  # 오류로 다시 열리지 않음
+    (a,) = list(page.annots())
+    assert a.rect.height <= page.rect.height + 0.01
+
+
+@pytest.mark.parametrize("rot,zoom", [(0, 1.0), (90, 1.5), (270, 0.75)])
+def test_editor_sizer_narrowing_keeps_long_text_committable(win, tmp_path, monkeypatch, rot, zoom):
+    """긴 글을 좁히면 줄이 늘어 쪽보다 높아질 수 있다. 그때는 넣을 수 있는 너비까지만 좁혀야(rev14 판 2 HIGH)."""
+    import pymupdf
+    from pdfviewer.core import annots
+    from PySide6.QtWidgets import QMessageBox
+    monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: pytest.fail("넣기 오류 창이 뜨면 안 됨: " + str(a[2:])))
+    win.open_path(_annot_pdf(tmp_path)); pump()
+    t = win.tab()
+    page = t.d.doc[0]
+    if rot:
+        page.set_rotation(rot)
+    t.view.set_zoom(zoom)
+    pump()
+    text = "alpha beta gamma delta epsilon " * 12
+    box = (pymupdf.Rect(60, 60, 480, 180) * page.derotation_matrix).normalize()
+    t.view.open_text_editor(0, box, text=text, size=14, align="left"); pump()
+    ed = t.view._editor
+    _drag_sizer(ed, -5000, -5000)
+    box = t.view._editor_at[1]
+    assert box.height + annots.BOX_LEAD <= page.rect.height + 0.01
+    ed.commit(); pump()
+    assert t.view._editor is None  # 오류로 다시 열리지 않음
+    assert len(list(page.annots())) == 1
+
+
+def test_editor_sizer_rewraps_text_to_new_width(win, tmp_path):
+    """좁히면 글이 새 너비에 맞춰 다시 줄바꿈되고, 넣은 결과도 같은 줄로 들어가야."""
+    import pymupdf
+    win.open_path(_annot_pdf(tmp_path)); pump()
+    t = win.tab()
+    text = "alpha beta gamma delta epsilon"
+    t.view.open_text_editor(0, pymupdf.Rect(60, 100, 500, 140), text=text, size=14, align="left"); pump()
+    ed = t.view._editor
+    assert len(ed.visual_rows()) == 1
+    _drag_sizer(ed, -300, 0)
+    rows = ed.visual_rows()
+    assert len(rows) > 1
+    ed.commit(); pump()
+    assert t.view._editor is None
+    (a,) = list(t.d.doc[0].annots())
+    assert a.info["content"] == text
+
+
+def test_editor_sizer_on_existing_box_resizes_only_and_undo(win, tmp_path):
+    """넣은 상자를 다시 열어 글은 그대로 두고 크기만 바꿔도 반영되고, 되돌리기 한 번에 원래 크기로."""
+    import pymupdf
+    from pdfviewer.core import annots
+    win.open_path(_annot_pdf(tmp_path)); pump()
+    t = win.tab()
+    z = t.view.zoom
+    x = t.d.edit(annots.add_text_box, 0, pymupdf.Rect(100, 100, 300, 140), "KEEP TEXT", 14, "left", "#000000")
+    t.refresh(); pump()
+    old = annots.text_style(t.d.doc, 0, x)["edit_box"]
+    t.edit_text(0, x); pump()
+    ed = t.view._editor
+    _drag_sizer(ed, 50, 30)
+    ed.commit(); pump()
+    page = t.d.doc[0]
+    (b,) = list(page.annots())
+    assert b.info["content"] == "KEEP TEXT"
+    new = annots.text_style(t.d.doc, 0, b.xref)["edit_box"]
+    assert abs(new.width - (old.width + 50 / z)) < 1 and abs(new.height - (old.height + 30 / z)) < 1
+    assert abs(new.x0 - old.x0) < 1 and abs(new.y0 - old.y0) < 1
+    t.undo(); pump()
+    page = t.d.doc[0]
+    (c,) = list(page.annots())
+    back = annots.text_style(t.d.doc, 0, c.xref)["edit_box"]
+    assert all(abs(p - q) < 0.5 for p, q in zip(back, old))
+    # 다시 열면 바뀐 크기(되돌린 뒤에는 원래 크기) 그대로 칸이 열림
+    t.edit_text(0, c.xref); pump()
+    assert abs(t.view._editor.edit.geometry().width() - old.width * z) <= 1
+    t.view._editor.cancel(); pump()
+
+
+def test_editor_sizer_with_move_and_zoom(win, tmp_path):
+    """옮기기와 함께 써도 되고, 배율이 바뀌어도 크기는 쪽 좌표 기준으로 그대로여야."""
+    import pymupdf
+    from pdfviewer.core import annots
+    win.open_path(_annot_pdf(tmp_path)); pump()
+    t = win.tab()
+    t.view.set_zoom(1.0); pump()
+    t.view.open_text_editor(0, pymupdf.Rect(100, 100, 300, 140), text="BOTH", size=14, align="left"); pump()
+    ed = t.view._editor
+    ed.grip.dragged.emit(40.0, 20.0); pump()
+    _drag_sizer(ed, 60, 40)
+    box = t.view._editor_at[1]
+    assert abs(box.x0 - 140) < 0.5 and abs(box.y0 - 120) < 0.5
+    assert abs(box.width - 260) < 0.5 and abs(box.height - (ed.edit.geometry().height())) < 1
+    w_page, h_page = box.width, box.height
+    t.view.set_zoom(2.0); pump()
+    ed = t.view._editor
+    box = t.view._editor_at[1]
+    assert abs(box.width - w_page) < 0.01 and abs(box.height - h_page) < 0.01
+    assert abs(ed.edit.geometry().width() - w_page * 2) <= 1
+    ed.grip.dragged.emit(-20.0, 0.0); pump()  # 크기 바꾼 뒤 옮겨도 크기는 그대로
+    box = t.view._editor_at[1]
+    assert abs(box.width - w_page) < 0.01 and abs(box.x0 - 130) < 0.5
+    ed.commit(); pump()
+    (a,) = list(t.d.doc[0].annots())
+    eb = annots.text_style(t.d.doc, 0, a.xref)["edit_box"]
+    assert abs(eb.x0 - 130) < 1 and abs(eb.width - w_page) < 1 and abs(eb.height - h_page) < 1

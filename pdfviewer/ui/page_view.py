@@ -354,6 +354,7 @@ class PageView(QScrollArea):
         ed.top_hint = lambda text, size, rows, e=ed: (
             self._editor_top(*self._editor_at[:2], text, size, rows) if e is self._editor else None)
         ed.dragged.connect(lambda dx, dy, e=ed: self._move_editor(e, dx, dy))
+        ed.resized.connect(lambda dx, dy, e=ed: self._resize_editor(e, dx, dy))
         ed.edit.undoAvailable.connect(lambda _: self.editorChanged.emit())
         ed.edit.redoAvailable.connect(lambda _: self.editorChanged.emit())
         self._place_editor()
@@ -396,6 +397,52 @@ class PageView(QScrollArea):
         moved = pymupdf.Rect(nx, ny, nx + r.width, ny + r.height)
         self._editor_at = (index, (moved * page.derotation_matrix).normalize(), xref)
         ed._top_key, ed._top = None, None  # 쪽 아래 끝 판단을 새 자리로 다시(멀어지면 밀림도 없음)
+        self._place_editor()
+
+    def _resize_editor(self, ed, dx: float, dy: float) -> None:
+        """크기 손잡이로 끈 양(화면 픽셀)만큼 쓰는 상자의 너비·높이를 바꾼다. 왼쪽 위는 그대로이고,
+        너비는 최소 폭, 높이는 지금 글이 다 들어가는 높이 아래로 줄지 않으며 쪽 밖으로 나가지 않는다."""
+        if ed is not self._editor or self.doc is None:
+            return
+        index, box, xref = self._editor_at
+        page, z = self.doc[index], self.zoom
+        r = (box * page.rotation_matrix).normalize()  # 화면에 보이는 방향의 쪽 좌표
+        if ed._top is not None and ed._top / z < r.y0:
+            r = pymupdf.Rect(r.x0, ed._top / z, r.x1, ed._top / z + r.height)  # 위로 밀려 보이던 자리에서부터
+        pr = page.rect
+        size = ed.size.value()
+        # 지금 보이는 칸 크기에서부터(좁게 끈 상자는 최소 폭으로, 글이 많으면 상자보다 높게 보임)
+        w0 = max(r.width, annots.box_min_width(size))
+        h0 = max(r.height, ed.edit.geometry().height() / z)
+        w = min(max(w0 + dx / z, annots.box_min_width(size)), max(pr.x1 - r.x0, 0))
+        h = max(h0 + dy / z, 1)
+        # 넣을 때 주석 상자는 숨은 앞 줄(BOX_LEAD)만큼 더 높으므로 쪽 높이에서 그만큼 뺀 데까지만(rev14 판 1)
+        h_max = max(min(pr.y1 - r.y0, pr.height - annots.BOX_LEAD), 0)
+
+        def need_at(width: float) -> float:
+            # 너비를 먼저 놓아 새 너비로 줄을 바꾼 뒤, 그 글이 다 들어가는 높이를 잰다
+            self._editor_at = (index, (pymupdf.Rect(r.x0, r.y0, r.x0 + width, r.y0 + h) * page.derotation_matrix).normalize(), xref)
+            ed._top_key, ed._top = None, None
+            self._place_editor()
+            doc = ed.edit.document()
+            lines = sum(doc.findBlockByNumber(i).layout().lineCount() for i in range(doc.blockCount()))
+            return max((doc.size().height() + 4) / z, annots.box_need_height(size, lines) - annots.BOX_LEAD)
+
+        need = need_at(w)
+        if need > h_max and w < w0:
+            # 좁혀서 글이 쪽에 다 안 들어가게 되면, 들어가는 데까지만 좁힌다(rev14 판 2: 넣을 수 없는 크기를 막음)
+            lo, hi = w, w0  # lo는 넘침, hi는 (원래 너비라) 들어감
+            for _ in range(12):
+                mid = (lo + hi) / 2
+                if need_at(mid) > h_max:
+                    lo = mid
+                else:
+                    hi = mid
+            w = hi
+            need = need_at(w)
+        h = min(max(h, need), h_max)
+        self._editor_at = (index, (pymupdf.Rect(r.x0, r.y0, r.x0 + w, r.y0 + h) * page.derotation_matrix).normalize(), xref)
+        ed._top_key, ed._top = None, None
         self._place_editor()
 
     def _on_editor_done(self, ed, values) -> None:

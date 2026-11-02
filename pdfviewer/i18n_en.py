@@ -219,6 +219,7 @@ EN: dict[str, str] = {
     "색": "Color",
     "넣기": "Add",
     "끌어서 옮기기": "Drag to move",
+    "끌어서 크기 바꾸기": "Drag to resize",
     "글자 색": "Text Color",
     "글자 넣기": "Add Text",
     "넣을 글자 (Enter로 줄 바꿈)": "Text to add (Enter for a new line)",

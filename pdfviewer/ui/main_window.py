@@ -21,7 +21,7 @@ from .. import i18n
 from ..i18n import tr
 
 APP_NAME = tr("한장PDF")
-APP_VERSION = "rev13"
+APP_VERSION = "rev14"
 SOURCE_URL = "https://github.com/hayden90/hanjang-pdf"  # AGPL: 받은 사람이 소스를 받을 수 있는 곳
 BUBIGTER_URL = "https://www.bubigter.com/?utm_source=hanjangpdf&utm_medium=app"
 ABOUT_TEXT = (
