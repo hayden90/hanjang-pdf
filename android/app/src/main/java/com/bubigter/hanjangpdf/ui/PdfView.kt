@@ -50,6 +50,20 @@ import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.focusable
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
+import com.bubigter.hanjangpdf.R
 import com.bubigter.hanjangpdf.core.ViewDoc
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -128,6 +142,18 @@ fun PdfView(model: ViewerModel, doc: ViewDoc, modifier: Modifier = Modifier) {
             model.jumpPage = null
         }
 
+        // 키보드·TalkBack·스위치 접근(8-5): 손가락 없이도 쪽 넘기기·한 화면 스크롤·확대·축소
+        fun scrollBy(dy: Float) { flingJob[0]?.cancel(); oy = layout.clampY(oy + dy, zoom, viewH) }
+        fun goPage(delta: Int) {
+            val p = (layout.pageAt(viewH / 2f, zoom, oy) + delta).coerceIn(0, layout.count - 1)
+            flingJob[0]?.cancel()
+            oy = layout.clampY(layout.tops[p] * zoom, zoom, viewH)
+        }
+        val center = Offset(viewW / 2f, viewH / 2f)
+        val pageNo = layout.pageAt(viewH / 2f, zoom, oy) + 1
+        val viewDesc = stringResource(R.string.page_desc, pageNo, layout.count)
+        val labels = listOf(R.string.next_page, R.string.prev_page, R.string.zoom_in, R.string.zoom_out).map { stringResource(it) }
+
         val paint = remember { Paint(Paint.FILTER_BITMAP_FLAG) }
         val cur = model.cursor
         // 쓰는 칸 테두리·손잡이 자리(쪽 아래 끝이라 위로 밀려 보이면 밀린 자리, PC판 _fit_height의 _top)
@@ -135,6 +161,33 @@ fun PdfView(model: ViewerModel, doc: ViewDoc, modifier: Modifier = Modifier) {
         val edShown = edNow?.let { e -> remember(doc, e.page, e.box, e.text, e.size) { tools.shownBox(e) } }
         Canvas(
             Modifier.fillMaxSize().testTag("pdfview")
+                .semantics {
+                    contentDescription = viewDesc
+                    customActions = listOf(
+                        CustomAccessibilityAction(labels[0]) { goPage(1); true },
+                        CustomAccessibilityAction(labels[1]) { goPage(-1); true },
+                        CustomAccessibilityAction(labels[2]) { zoomAt(zoom * 1.25f, center); true },
+                        CustomAccessibilityAction(labels[3]) { zoomAt(zoom / 1.25f, center); true },
+                    )
+                }
+                .onKeyEvent { ev ->
+                    if (ev.type != KeyEventType.KeyDown) return@onKeyEvent false
+                    when (ev.key) {
+                        Key.PageDown, Key.Spacebar -> { scrollBy(viewH * 0.9f); true }
+                        Key.PageUp -> { scrollBy(-viewH * 0.9f); true }
+                        Key.DirectionDown -> { scrollBy(viewH * 0.1f); true }
+                        Key.DirectionUp -> { scrollBy(-viewH * 0.1f); true }
+                        Key.DirectionRight -> { ox = layout.clampX(ox + viewW * 0.1f, zoom); true }
+                        Key.DirectionLeft -> { ox = layout.clampX(ox - viewW * 0.1f, zoom); true }
+                        Key.MoveHome -> { scrollBy(-oy); true }
+                        Key.MoveEnd -> { goPage(layout.count); true }
+                        Key.Plus, Key.Equals, Key.NumPadAdd -> { zoomAt(zoom * 1.25f, center); true }
+                        Key.Minus, Key.NumPadSubtract -> { zoomAt(zoom / 1.25f, center); true }
+                        Key.Zero -> if (ev.isCtrlPressed) { zoomAt(1f, center); true } else false
+                        else -> false
+                    }
+                }
+                .focusable()
                 .pointerInput(layout, tools.tool) {
                     // 보기 도구에서만: 두 번 눌러 확대, 눌러 내 메모·글자 상자 고치기(다른 도구는 아래에서 누르기를 받는다)
                     if (tools.tool != Tool.VIEW) return@pointerInput
@@ -256,24 +309,32 @@ fun PdfView(model: ViewerModel, doc: ViewDoc, modifier: Modifier = Modifier) {
                 val kk = layout.base * zoom
                 val gx = layout.lefts[e.page] * zoom - ox + v.x0.toFloat() * kk
                 val gy = layout.tops[e.page] * zoom - oy + v.y0.toFloat() * kk
-                val gripPx = with(density) { 32.dp.toPx() }
+                // 누르는 영역 48dp(8-5 접근성). 손잡이 없이 옮기는 길: TalkBack 동작 네 방향(10pt씩)
+                val gripPx = with(density) { 48.dp.toPx() }
+                val gd = stringResource(R.string.grip)
+                val moves = listOf(R.string.grip_up to (0.0 to -10.0), R.string.grip_down to (0.0 to 10.0),
+                    R.string.grip_left to (-10.0 to 0.0), R.string.grip_right to (10.0 to 0.0))
+                    .map { (id, d) -> stringResource(id) to d }
                 Box(Modifier.offset { IntOffset((gx - gripPx).roundToInt(), (gy - gripPx).roundToInt()) }
-                    .size(32.dp).background(Color(0xFF1565C0), RoundedCornerShape(6.dp)).testTag("grip")
+                    .size(48.dp).background(Color(0xFF1565C0), RoundedCornerShape(6.dp)).testTag("grip")
+                    .semantics {
+                        contentDescription = gd
+                        customActions = moves.map { (l, d) -> CustomAccessibilityAction(l) { tools.moveEditor(d.first, d.second); true } }
+                    }
                     .pointerInput(e.seq) {
                         detectDragGestures { ch, amount ->
                             ch.consume()
                             val k2 = layout.base * zoom
                             tools.moveEditor((amount.x / k2).toDouble(), (amount.y / k2).toDouble())
                         }
-                    }, contentAlignment = Alignment.Center) { Text("✥", color = Color.White) }
+                    }, contentAlignment = Alignment.Center) { Text("✥", color = Color.White, modifier = Modifier.clearAndSetSemantics {}) }
             }
         }
 
-        // 지금 쪽 / 전체 쪽 수
-        val pageNo = layout.pageAt(viewH / 2f, zoom, oy) + 1
+        // 지금 쪽 / 전체 쪽 수(쪽 보기 이름에 들어 있어 따로 읽지 않음)
         Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 16.dp)
             .background(Color(0xAA000000), RoundedCornerShape(12.dp)).padding(horizontal = 12.dp, vertical = 4.dp)) {
-            Text("$pageNo / ${layout.count}", color = Color.White, modifier = Modifier.testTag("pageLabel"))
+            Text("$pageNo / ${layout.count}", color = Color.White, modifier = Modifier.testTag("pageLabel").clearAndSetSemantics {})
         }
     }
 }

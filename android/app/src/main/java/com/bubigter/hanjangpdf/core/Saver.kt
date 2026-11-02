@@ -71,11 +71,17 @@ object Saver {
             // 입력을 먼저 연다("wt"는 대상을 비우므로, 입력을 못 열면 대상에 손대지 않게)
             src.inputStream().use { i -> target.openWrite().use { o -> copy(i, o) } }
         } catch (e: Exception) {
-            throw DocOpError("파일에 쓰지 못했습니다: ${e.message}")
+            throw DocOpError(if (emptyAgain(target)) "파일에 쓰지 못했습니다: ${e.message}"
+                else "파일에 쓰지 못했고 고른 파일에 쓰다 만 내용이 남았을 수 있습니다: ${e.message}")
         }
         val got = try { target.openRead().use { sha256(it) } } catch (e: Exception) { null }
-        if (got != want) throw DocOpError("쓴 파일을 다시 읽어 보니 내용이 다릅니다.")
+        if (got != want) throw DocOpError(if (emptyAgain(target)) "쓴 파일을 다시 읽어 보니 내용이 다릅니다."
+            else "쓴 파일을 다시 읽어 보니 내용이 다르고, 고른 파일에 쓰다 만 내용이 남았을 수 있습니다.")
     }
+
+    /** 빈 대상에 쓰다 실패했을 때 쓰다 만 내용을 지워 원래대로(빈 파일) 둔다(검토 8-4 판 4 LOW). 비우지 못하면 거짓. */
+    private fun emptyAgain(target: SaveTarget): Boolean =
+        try { target.openWrite().close(); true } catch (e: Exception) { false }
 
     /** 대상이 비었는지: 비었으면 참, 1바이트라도 있으면 거짓, 읽을 수 없으면 null. */
     fun isEmpty(target: SaveTarget): Boolean? =
@@ -378,6 +384,9 @@ object Recovery {
         ok
     }
 
+    /** 복구본을 그 기록의 원본 자리에 '다른 이름으로 저장'하려 했다(손대지 않음). */
+    class SameSource : DocOpError("복구본을 원본 자리에 저장할 수 없습니다.")
+
     /** 되돌리기 직전 지금 원본을 읽거나 보관하지 못했다(원본·기록 그대로). */
     class KeepFailed(message: String) : DocOpError(message)
 
@@ -444,6 +453,9 @@ object Recovery {
      * 대상에 손대기 전에 실패하거나(Untouched), 이미 연 파일은 끝까지 읽힌다. 쓴 내용은 해시로 확인한다.
      */
     fun saveCopy(p: Pending, target: SaveTarget, recRoot: File): Overwrite.Result {
+        // 그 기록의 원본 자리에 쓰면 덮기 보호 경로의 정리가 이 before.pdf를 지운 뒤 쓰려 한다(검토 8-4 판 4 MEDIUM).
+        // 원본을 덮기 전 판으로 되돌리는 일은 '원본 복구'([restore], 지금 원본을 따로 보관함)가 맡는다.
+        if (target.id == p.uri) throw SameSource()
         if (!isOpen(p) || !p.before.exists()) throw DocOpError("복구본이 이미 정리됐습니다.")
         if (Saver.sha256(p.before) != p.beforeSha) throw DocOpError("복구본이 처음과 다릅니다.")
         val r = Saver.saveTo(p.before, target, recRoot, p.title)

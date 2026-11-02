@@ -8,7 +8,7 @@
         android:fullBackupContent="@xml/backup_rules"
         android:label="@string/app_name"
         android:supportsRtl="true"
-        android:theme="@android:style/Theme.Material.Light.NoActionBar">
+        android:theme="@style/AppTheme">
         <!-- 화면은 하나(singleTask): 다른 앱의 '열기'·'공유'도 이미 있는 화면이 onNewIntent로 받는다.
              화면 둘이 같은 원본·작업 폴더를 건드리는 일을 막는다(프로세스 안 잠금·폴더 분리는 그대로 받침으로 둔다). -->
         <activity

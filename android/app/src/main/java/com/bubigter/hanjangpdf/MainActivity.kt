@@ -7,11 +7,16 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -39,13 +44,18 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.bubigter.hanjangpdf.ui.AboutScreen
 import com.bubigter.hanjangpdf.ui.EditorPanel
 import com.bubigter.hanjangpdf.ui.NoteDialog
 import com.bubigter.hanjangpdf.ui.PageList
@@ -57,10 +67,12 @@ class MainActivity : ComponentActivity() {
     internal val model: ViewerModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // 상태 막대 글자·아이콘 색을 밝은·어두운 화면에 맞춘다(8-5: 어두운 화면에서 검은 아이콘이 안 보이던 것)
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         // 화면 돌리기 등으로 다시 만들어질 때는 이미 연 문서를 그대로 둔다.
         if (savedInstanceState == null) model.openIntent(intent)
-        setContent { MaterialTheme { Surface(Modifier.fillMaxSize()) { App(model) } } }
+        setContent { HanjangTheme { Surface(Modifier.fillMaxSize()) { App(model) } } }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -70,8 +82,14 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+/** 기기의 어두운 화면 설정을 따르는 색(Material 기본 색은 WCAG AA 글자 대비를 맞춘다). */
 @Composable
-private fun App(model: ViewerModel) {
+internal fun HanjangTheme(content: @Composable () -> Unit) {
+    MaterialTheme(colorScheme = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme(), content = content)
+}
+
+@Composable
+internal fun App(model: ViewerModel) {
     val ctx = LocalContext.current
     val pick = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) model.openUri(uri)
@@ -83,6 +101,7 @@ private fun App(model: ViewerModel) {
     var menu by remember { mutableStateOf(false) }
     var askOverwrite by remember { mutableStateOf(false) }
     var askClose by remember { mutableStateOf(false) }
+    var showAbout by rememberSaveable { mutableStateOf(false) }
     // 저장 안 한 편집·확인 안 한 쓰는 칸·메모 글이 있으면 뒤로 가기로 닫기 전에 묻는다(검토 8-4 판 2 HIGH와 같은 꼴)
     BackHandler(enabled = model.dirty || model.tools.unsaved) { askClose = true }
     var insertAt by remember { mutableStateOf(0) }
@@ -113,10 +132,16 @@ private fun App(model: ViewerModel) {
     }
     LaunchedEffect(model.singleStep) { if (model.singleStep) model.notify(R.string.single_step) }
 
-    Column(Modifier.fillMaxSize().safeDrawingPadding()) {
+    if (showAbout) Column(Modifier.fillMaxSize().safeDrawingPadding()) { AboutScreen { showAbout = false } }
+    else Column(Modifier.fillMaxSize().safeDrawingPadding()) {
+        val titleText = (if (model.dirty) "• " else "") + model.title.ifEmpty { stringResource(R.string.app_name) }
+        // 글꼴이 크면 단추에 밀려 문서 이름이 '…'만 남으므로 이름을 단추 줄 위에 따로 둔다(8-5)
+        val titleAbove = model.doc != null && LocalDensity.current.fontScale >= 1.3f
+        if (titleAbove) Text(titleText, Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp).semantics { heading() }.testTag("title"),
+            maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium)
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text((if (model.dirty) "• " else "") + model.title.ifEmpty { stringResource(R.string.app_name) },
-                Modifier.weight(1f).padding(8.dp),
+            if (titleAbove) Spacer(Modifier.weight(1f))
+            else Text(titleText, Modifier.weight(1f).padding(8.dp).semantics { heading() }.testTag("title"),
                 maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium)
             if (model.doc != null) {
                 TextButton(onClick = {
@@ -131,7 +156,10 @@ private fun App(model: ViewerModel) {
                     enabled = model.tools.editor == null) { Text(stringResource(R.string.pages)) }
             }
             Box {
-                TextButton(onClick = { menu = true }, Modifier.testTag("menu")) { Text("⋮") }
+                val menuDesc = stringResource(R.string.menu)
+                TextButton(onClick = { menu = true }, Modifier.testTag("menu")) {
+                    Text("⋮", Modifier.semantics { contentDescription = menuDesc })
+                }
                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                     val has = model.doc != null && !model.busy
                     // 쓰는 칸이 떠 있으면 저장·공유도 막는다(확인 안 한 글이 빠진 판이 저장되지 않게)
@@ -151,6 +179,8 @@ private fun App(model: ViewerModel) {
                         onClick = { menu = false; model.undo() }, modifier = Modifier.testTag("undo"))
                     DropdownMenuItem(text = { Text(stringResource(R.string.redo)) }, enabled = has && model.canRedo && model.tools.editor == null,
                         onClick = { menu = false; model.redo() }, modifier = Modifier.testTag("redo"))
+                    DropdownMenuItem(text = { Text(stringResource(R.string.about)) }, onClick = { menu = false; showAbout = true },
+                        modifier = Modifier.testTag("aboutOpen"))
                 }
             }
         }

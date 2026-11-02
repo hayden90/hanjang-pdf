@@ -38,6 +38,19 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.focusable
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.onLongClick
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import com.bubigter.hanjangpdf.R
 import com.bubigter.hanjangpdf.core.ViewDoc
 
@@ -63,10 +76,11 @@ fun PageList(
     val selNow by rememberUpdatedState(selected)
 
     Column(Modifier.fillMaxSize().testTag("pageList")) {
+        // 안내 글은 단추 줄(가로로 밀어 봄) 위에 따로 두어 큰 글꼴에서도 화면 안에서 줄바꿈된다(8-5)
+        Text(if (selected.isEmpty()) stringResource(R.string.pages_hint) else stringResource(R.string.selected, selected.size),
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp), style = MaterialTheme.typography.bodySmall)
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 4.dp),
             verticalAlignment = Alignment.CenterVertically) {
-            Text(if (selected.isEmpty()) stringResource(R.string.pages_hint) else stringResource(R.string.selected, selected.size),
-                Modifier.padding(8.dp), style = MaterialTheme.typography.bodySmall)
             val has = selected.isNotEmpty()
             TextButton(onClick = { model.rotatePages(selected, -90) }, enabled = has, modifier = Modifier.testTag("rotL")) { Text(stringResource(R.string.rotate_left)) }
             TextButton(onClick = { model.rotatePages(selected, 90) }, enabled = has, modifier = Modifier.testTag("rotR")) { Text(stringResource(R.string.rotate_right)) }
@@ -109,12 +123,40 @@ fun PageList(
                 LaunchedEffect(model.gen, i) { model.loadThumb(i) }
                 val sel = i in selected
                 val size = doc.sizes.getOrNull(i)
-                Column(Modifier.padding(6.dp).testTag("thumb$i").pointerInput(selected) {
-                    detectTapGestures(onTap = {
-                        if (selected.isNotEmpty()) onSelect(if (sel) selected - i else selected + i)
-                        else { model.jumpPage = i; onClose() }
-                    })
-                }, horizontalAlignment = Alignment.CenterHorizontally) {
+                val tap = {
+                    if (selected.isNotEmpty()) onSelect(if (sel) selected - i else selected + i)
+                    else { model.jumpPage = i; onClose() }
+                }
+                val toggle = { onSelect(if (sel) selected - i else selected + i) }
+                // 손가락 없이(TalkBack·스위치 접근·키보드) 같은 일: 누르기 = 보기(고르는 중이면 고르기), 길게 = 고르기,
+                // 고른 쪽 한 칸 앞·뒤로 옮기기(끌어 옮기기 대신, 8-5 접근성). Enter=누르기, Space=고르기.
+                val desc = stringResource(R.string.thumb_desc, i + 1)
+                val tapLabel = stringResource(if (selected.isNotEmpty()) (if (sel) R.string.thumb_unselect else R.string.thumb_select) else R.string.thumb_open)
+                val toggleLabel = stringResource(if (sel) R.string.thumb_unselect else R.string.thumb_select)
+                val earlier = stringResource(R.string.move_earlier)
+                val later = stringResource(R.string.move_later)
+                Column(Modifier.padding(6.dp).testTag("thumb$i")
+                    .semantics(mergeDescendants = true) {
+                        contentDescription = desc
+                        this.selected = sel
+                        onClick(tapLabel) { tap(); true }
+                        onLongClick(toggleLabel) { toggle(); true }
+                        if (sel) customActions = listOf(
+                            CustomAccessibilityAction(earlier) { moveBy(model, selected, -1, count, onSelect) },
+                            CustomAccessibilityAction(later) { moveBy(model, selected, 1, count, onSelect) },
+                        )
+                    }
+                    .onKeyEvent { ev ->
+                        if (ev.type != KeyEventType.KeyDown) false
+                        else when (ev.key) {
+                            Key.Enter, Key.NumPadEnter -> { tap(); true }
+                            Key.Spacebar -> { toggle(); true }
+                            else -> false
+                        }
+                    }
+                    .focusable()
+                    .pointerInput(selected) { detectTapGestures(onTap = { tap() }) },
+                    horizontalAlignment = Alignment.CenterHorizontally) {
                     Box(Modifier.fillMaxWidth().aspectRatio(if (size != null && size.h > 0) maxOf(0.3f, size.w / size.h) else 0.7f)
                         .background(Color.White)
                         .border(if (sel) BorderStroke(3.dp, MaterialTheme.colorScheme.primary) else BorderStroke(1.dp, Color.LightGray))
@@ -128,6 +170,18 @@ fun PageList(
             }
         }
     }
+}
+
+/**
+ * 고른 쪽 묶음을 한 칸 앞([dir] -1)·뒤(+1)로(끌어 옮기기와 같은 [ViewerModel.movePages], 원래 번호 기준 '그 쪽 앞').
+ * 더 갈 곳이 없으면 거짓.
+ */
+private fun moveBy(model: ViewerModel, sel: Set<Int>, dir: Int, count: Int, onSelect: (Set<Int>) -> Unit): Boolean {
+    if (sel.isEmpty()) return false
+    val to = if (dir < 0) sel.min() - 1 else sel.max() + 2
+    if (to < 0 || to > count) return false
+    model.movePages(sel, to) { pos -> onSelect((pos until pos + sel.size).toSet()) }
+    return true
 }
 
 /** 손가락 자리의 쪽 번호. */

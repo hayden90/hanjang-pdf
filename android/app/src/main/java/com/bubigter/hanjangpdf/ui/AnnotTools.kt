@@ -188,7 +188,7 @@ class AnnotTools(private val m: ViewerModel) {
 
     /** 이 프로그램이 넣은 글자 상자를 쓰는 칸으로 연다(고치기 칸 자리는 text_style의 edit_box). */
     private suspend fun openText(d: ViewDoc, page: Int, xref: Int) {
-        val st = try { read(d) { annots.textStyle(it, page, xref) } } catch (e: Exception) { m.say(e.message ?: ""); null } ?: return
+        val st = try { read(d) { annots.textStyle(it, page, xref) } } catch (e: Exception) { m.say(m.core(e.message)); null } ?: return
         if (!stillFor(d)) return // 두 번째 읽기 사이에도 문서가 바뀔 수 있다
         editor = TextEdit(page, st.editBox, xref, st.text, st.size, st.align, st.color, st)
     }
@@ -196,8 +196,9 @@ class AnnotTools(private val m: ViewerModel) {
     /**
      * 확인한 칸·메모를 넣는 중(문서 편집이 도는 중)이면 입력을 받지 않는다. 그때 받은 글은 성공 뒤 칸을 닫으며
      * 사라지기 때문이다(검토 8-4 판 3 HIGH, 판 2와 같은 종류). 화면도 이 동안 입력 칸·단추를 잠근다.
+     * 찾기·열기만 도는 중에는 잠그지 않는다(검토 8-4 판 4 LOW: 그때 친 글은 넣는 일과 겹치지 않음. 확인은 끝난 뒤에만).
      */
-    val inputLocked: Boolean get() = m.busy
+    val inputLocked: Boolean get() = m.editing
 
     /** 쓰는 칸의 글·모양을 바꾼다(화면 입력). 받지 않으면(칸이 없음·다른 칸·[inputLocked]) 거짓. */
     fun updateEditor(e: TextEdit): Boolean {
@@ -235,10 +236,15 @@ class AnnotTools(private val m: ViewerModel) {
         return (PRect(r.x0, top, r.x1, top + r.height) * PMatrix.invert(rot)).normalize()
     }
 
-    fun cancelEditor() { editor = null }
+    /** 쓰는 칸 닫기. 넣는 중([inputLocked])에는 받지 않는다(넣다 실패하면 쓴 글이 칸에 남아야 하므로, 검토 8-4 판 4 LOW). */
+    fun cancelEditor() { if (!inputLocked) editor = null }
 
-    /** 다 쓴 글자 상자를 넣거나 고친다. 못 넣으면(넘침 등) 칸을 그대로 두어 쓴 글이 남는다. */
-    fun commitEditor() {
+    /**
+     * 다 쓴 글자 상자를 넣거나 고친다. 못 넣으면(넘침 등) 칸을 그대로 두어 쓴 글이 남는다.
+     * [text]는 화면 입력 칸의 지금 글이다(입력 칸 → 모델 반영이 한 틀 늦어 마지막 글자가 빠지지 않게, 검토 8-4 판 4 LOW).
+     */
+    fun commitEditor(text: String? = null) {
+        if (text != null) editor?.let { if (it.text != text) updateEditor(it.copy(text = text)) }
         val e = editor ?: return
         if (m.busy) return
         if (e.xref == null) {
@@ -255,7 +261,9 @@ class AnnotTools(private val m: ViewerModel) {
             // PC판 commit_text처럼 마칠 때 상자 모양을 다시 읽어 비교한다(연 때 읽은 [TextEdit.orig]가 아니라)
             val now = try { read(d) { annots.textStyle(it, e.page, xref) } } catch (ex: Exception) { null }
             val cur = editor ?: return@launch
-            if (cur.seq != e.seq || m.busy || m.doc !== d) return@launch // 그사이 칸을 닫았거나 다른 일이 시작됐거나 문서가 바뀜
+            if (cur.seq != e.seq || m.doc !== d) return@launch // 그사이 칸을 닫았거나 문서가 바뀜(칸도 없음)
+            // 다른 일(찾기 등)이 시작됨: 칸과 쓴 글은 그대로 두고, 넣지 않았다고 알린다(검토 8-4 판 4 LOW: 조용히 넘기지 않게)
+            if (m.busy) { m.say(str(R.string.err_busy_retry)); return@launch }
             if (unchanged(now, cur)) {
                 editor = null // 바꾼 것이 없음(글도 자리도 그대로)
                 return@launch
@@ -266,7 +274,8 @@ class AnnotTools(private val m: ViewerModel) {
         }
     }
 
-    fun cancelNote() { note = null }
+    /** 메모 창 닫기. 붙이는 중에는 받지 않는다([cancelEditor]와 같은 까닭). */
+    fun cancelNote() { if (!inputLocked) note = null }
 
     /** 메모 창의 글(화면 입력). 모델에 두어 화면을 돌려도 남고, 다른 문서를 열기 전에 물을 수 있다. */
     fun updateNote(text: String): Boolean {

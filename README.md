@@ -37,6 +37,10 @@ python -m venv .venv
 
 시험: `QT_QPA_PLATFORM=offscreen python -m pytest tests`
 
+## 안드로이드판
+
+안드로이드판 소스와 빌드 방법은 [android/README.md](android/README.md)에 있습니다.
+
 ## 라이선스
 
 GNU Affero General Public License v3.0([LICENSE](LICENSE)). PDF 엔진 PyMuPDF·MuPDF(Artifex)가 AGPL v3이라

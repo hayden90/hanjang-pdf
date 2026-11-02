@@ -68,6 +68,8 @@ class ViewerModel(app: Application) : AndroidViewModel(app) {
         private set
     /** 열기·찾기·편집·저장이 도는 중(화면이 도는 표시를 띄우고, 그동안 새 열기·편집은 받지 않는다). */
     val busy get() = opening || searching || working
+    /** 문서 편집·저장·공유가 도는 중(찾기·열기는 아님). 쓰는 칸·메모 입력 잠금은 이때만([AnnotTools.inputLocked]). */
+    internal val editing get() = working
     /** 암호를 묻는 중이면 그 문서, [pwWrong]은 방금 틀렸는지. */
     var pwDoc by mutableStateOf<ViewDoc?>(null)
         private set
@@ -538,10 +540,13 @@ class ViewerModel(app: Application) : AndroidViewModel(app) {
         return true
     }
 
+    /** core의 한국어 알림 글을 화면 언어로([CoreText]). */
+    internal fun core(msg: String?): String = CoreText.localize(getApplication(), msg ?: "")
+
     private fun editError(e: Throwable): String = when (e) {
         is NoSpaceError -> str(R.string.err_space)
         is DocOpError -> if (e.message == com.bubigter.hanjangpdf.core.Annots.TOO_LONG) str(R.string.err_too_long)
-            else getApplication<Application>().getString(R.string.err_edit, e.message ?: "")
+            else getApplication<Application>().getString(R.string.err_edit, core(e.message))
         else -> getApplication<Application>().getString(R.string.err_edit, e.toString())
     }
 
@@ -713,9 +718,9 @@ class ViewerModel(app: Application) : AndroidViewModel(app) {
         when (x) {
             is Overwrite.Result.Ok -> {}
             is Overwrite.Result.Restored ->
-                message = app.getString(if (picked) R.string.err_pick_restored else R.string.err_over_restored, x.reason)
+                message = app.getString(if (picked) R.string.err_pick_restored else R.string.err_over_restored, core(x.reason))
             is Overwrite.Result.Untouched ->
-                message = app.getString(if (picked) R.string.err_pick_untouched else R.string.err_over_untouched, x.reason)
+                message = app.getString(if (picked) R.string.err_pick_untouched else R.string.err_over_untouched, core(x.reason))
             is Overwrite.Result.RestoreFailed -> {
                 recovery = x.pending
                 recoveryReadable = false
@@ -877,7 +882,7 @@ class ViewerModel(app: Application) : AndroidViewModel(app) {
             // 지금 원본을 읽거나 보관하지 못함: 원본·기록 그대로, 물음도 그대로 두고 알린다(검토 8-4 판 3 HIGH)
             val e = r.exceptionOrNull()
             if (e is Recovery.KeepFailed) {
-                message = getApplication<Application>().getString(R.string.err_keep_failed, e.message ?: "")
+                message = getApplication<Application>().getString(R.string.err_keep_failed, core(e.message))
                 return@launch
             }
             val (ok, open) = r.getOrDefault(false to true)
@@ -911,9 +916,13 @@ class ViewerModel(app: Application) : AndroidViewModel(app) {
                     checkRecovery()
                 } else overwriteFailed(x, true) // 복구 기록은 그대로(고른 파일의 원래 내용도 지킴)
             }.onFailure { e ->
-                // 다른 화면이 이미 처리한 기록이면(before.pdf가 없어 실패) 물음을 닫는다
-                if (withContext(Dispatchers.IO) { Recovery.isOpen(p) }) message = editError(e)
-                else { recovery = null; restoreFailed = false; checkRecovery() }
+                when {
+                    // 그 원본 자리를 고름: 손대지 않았고 물음도 그대로 둔다(검토 8-4 판 4 MEDIUM)
+                    e is Recovery.SameSource -> message = str(R.string.err_recover_same_source)
+                    withContext(Dispatchers.IO) { Recovery.isOpen(p) } -> message = editError(e)
+                    // 다른 화면이 이미 처리한 기록이면(before.pdf가 없어 실패) 물음을 닫되 조용히 닫지 않는다
+                    else -> { recovery = null; restoreFailed = false; message = str(R.string.recovery_gone); checkRecovery() }
+                }
             }
         }
     }
