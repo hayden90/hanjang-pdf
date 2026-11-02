@@ -41,11 +41,13 @@ abstract class AboutAssetsTask : DefaultTask() {
 }
 
 /**
- * 출시 빌드 병합 매니페스트 검사(8-5 판 1 LOW, 8-6): 밖에 열린(exported) 구성 요소와 권한이 정한 것뿐인지.
+ * 출시 빌드 병합 매니페스트 검사(8-5 판 1 LOW, 8-6, 8-7): 구성 요소(열림 여부와 상관없이)와 열린 것, 권한이 정한 것뿐인지.
  * 시험용 activity(ui-test-manifest)가 debug에만 들어가는지, 인터넷·저장소 권한이 끼지 않았는지를 빌드 때 막는다.
  */
 abstract class ManifestCheckTask : DefaultTask() {
     @get:InputFile abstract val manifest: RegularFileProperty
+    /** 기준 매니페스트(android/release_manifest.golden.txt): 요소·속성 전부를 정규화한 꼴. 다르면 멈춘다. */
+    @get:InputFile abstract val golden: RegularFileProperty
     @get:OutputFile abstract val report: RegularFileProperty
 
     @TaskAction fun run() {
@@ -57,18 +59,101 @@ abstract class ManifestCheckTask : DefaultTask() {
             return (0 until l.length).map { l.item(it) as org.w3c.dom.Element }.filter(filter)
                 .map { it.getAttributeNS(ns, "name") }.toSet()
         }
-        val exported = listOf("activity", "activity-alias", "service", "receiver", "provider").flatMap { t ->
-            names(t) { it.getAttributeNS(ns, "exported") == "true" }
-        }.toSet()
-        val okExported = setOf(
-            "com.bubigter.hanjangpdf.MainActivity",
-            "androidx.profileinstaller.ProfileInstallReceiver", // android.permission.DUMP로만 부름(AndroidX 기본)
+        // 구성 요소는 "태그:이름"으로 비교한다(8-7 판 1 HIGH: 허용한 이름을 쓴 activity-alias가 이름만 비교하면 빠져나감)
+        fun comps(tag: String, filter: (org.w3c.dom.Element) -> Boolean = { true }) = names(tag, filter).map { "$tag:$it" }
+        // 매니페스트 요소는 네임스페이스가 없어야 한다(8-7 판 3 HIGH: <x:receiver xmlns:x=…>는 태그 이름 찾기에서 빠지지만
+        // 기기는 로컬 이름으로 읽음). 시험용 <instrumentation>도 출시에 들어가면 안 된다(판 3 LOW).
+        val everyEl = doc.getElementsByTagNameNS("*", "*")
+        val strayEls = (0 until everyEl.length).map { everyEl.item(it) as org.w3c.dom.Element }
+            .filter { it.namespaceURI != null || it.localName == "instrumentation" }
+            .map { "${it.namespaceURI ?: ""}:${it.localName}" }
+        // 요소 자리도 허용 목록으로 본다(8-7 판 4 HIGH: <permission>처럼 따로 보지 않던 태그가 그대로 통과).
+        // 태그 이름을 하나씩 막는 대신, 지금 release 병합 매니페스트에 있는 자리 밖의 요소는 모두 멈춘다.
+        val okPaths = setOf(
+            "manifest", "manifest/uses-sdk", "manifest/permission", "manifest/uses-permission", "manifest/application",
+            "manifest/application/activity", "manifest/application/provider", "manifest/application/receiver",
+            "manifest/application/provider/meta-data",
+            "manifest/application/activity/intent-filter", "manifest/application/receiver/intent-filter",
+            "manifest/application/activity/intent-filter/action", "manifest/application/activity/intent-filter/category",
+            "manifest/application/activity/intent-filter/data", "manifest/application/receiver/intent-filter/action",
+        )
+        fun pathOf(e: org.w3c.dom.Element): String {
+            var n: org.w3c.dom.Node? = e
+            val parts = ArrayList<String>()
+            while (n is org.w3c.dom.Element) { parts.add(0, n.localName ?: n.tagName); n = n.parentNode }
+            return parts.joinToString("/")
+        }
+        val badPaths = (0 until everyEl.length).map { pathOf(everyEl.item(it) as org.w3c.dom.Element) }.toSet() - okPaths
+        val declared = names("permission")
+        val okDeclared = setOf("com.bubigter.hanjangpdf.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION") // AndroidX core가 만드는 앱 전용 권한
+        val tags = listOf("activity", "activity-alias", "service", "receiver", "provider")
+        val all = tags.flatMap { comps(it) }.toSet()
+        // exported 값은 글자 그대로 true/false만 받는다(8-7 판 2: "TRUE"·" true"·@bool/ 참조가 열림 검사를 빠져나감).
+        // 값이 없으면 intent-filter가 있을 때 열림으로 본다(옛 기본값).
+        val badExported = ArrayList<String>()
+        fun isExported(tag: String, e: org.w3c.dom.Element): Boolean {
+            val v = e.getAttributeNS(ns, "exported")
+            return when (v) {
+                "true" -> true
+                "false" -> false
+                "" -> e.getElementsByTagName("intent-filter").length > 0
+                else -> { badExported += "$tag:${e.getAttributeNS(ns, "name")}=$v"; true }
+            }
+        }
+        val exported = tags.flatMap { t -> comps(t) { isExported(t, it) } }.toSet()
+        // 열린 것은 부를 때 필요한 권한까지 맞아야 한다(8-7 판 2 LOW: DUMP 권한을 떼어도 통과하던 것)
+        fun permissionOf(key: String): String {
+            val (tag, name) = key.split(":", limit = 2)
+            val l = doc.getElementsByTagName(tag)
+            return (0 until l.length).map { l.item(it) as org.w3c.dom.Element }
+                .filter { it.getAttributeNS(ns, "name") == name }.joinToString(",") { it.getAttributeNS(ns, "permission") }
+        }
+        // 허용 목록(8-7): 숨은(exported=false) 시험·디버그 구성 요소가 끼어도 멈추게, 지금 release에 있는 것만
+        val okAll = setOf(
+            "activity:com.bubigter.hanjangpdf.MainActivity",
+            "provider:androidx.core.content.FileProvider", // 공유 사본(share_paths.xml), 닫힘
+            "provider:androidx.startup.InitializationProvider", // AndroidX 시작 초기화(profileinstaller 등), 닫힘
+            "receiver:androidx.profileinstaller.ProfileInstallReceiver",
+        )
+        val okExported = mapOf( // 열려도 되는 것 → 붙어 있어야 하는 permission 속성("" = 없음)
+            "activity:com.bubigter.hanjangpdf.MainActivity" to "",
+            "receiver:androidx.profileinstaller.ProfileInstallReceiver" to "android.permission.DUMP", // AndroidX 기본
         )
         val perms = names("uses-permission") + names("uses-permission-sdk-23")
         val okPerms = setOf("com.bubigter.hanjangpdf.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION")
-        val errs = (exported - okExported).map { "열린 구성 요소: $it" } + (perms - okPerms).map { "권한: $it" }
+        val errs = strayEls.map { "정하지 않은 요소: $it" } + badPaths.map { "정하지 않은 요소 자리: $it" } +
+            (declared - okDeclared).map { "선언한 권한: $it" } + (all - okAll).map { "구성 요소: $it" } + badExported.map { "exported 값이 true/false가 아님: $it" } +
+            (exported - okExported.keys).map { "열린 구성 요소: $it" } +
+            exported.filter { it in okExported && permissionOf(it) != okExported[it] }.map { "열린 구성 요소의 permission이 다름: $it" } +
+            (perms - okPerms).map { "권한: $it" }
+        // 통째 대조(8-7 판 4: 태그·속성을 하나씩 막는 방식은 네임스페이스·값 표현으로 계속 빠져나감).
+        // 모든 요소를 문서 순서로, 자리(네임스페이스 포함)와 모든 속성([네임스페이스, 이름, 값], 정렬)을 JSON 한 줄씩 적어
+        // 기준 파일과 글자 그대로 같아야 통과한다. 판 번호(versionCode·versionName)만 뺀다.
+        val canon = (0 until everyEl.length).map { i ->
+            val e = everyEl.item(i) as org.w3c.dom.Element
+            val attrs = (0 until e.attributes.length).map { e.attributes.item(it) }
+                .filter { !(it.namespaceURI == ns && it.localName in setOf("versionCode", "versionName")) }
+                .map { listOf(it.namespaceURI ?: "", it.localName ?: it.nodeName, it.nodeValue) }
+                .sortedWith(compareBy({ it[0] }, { it[1] }))
+            var n: org.w3c.dom.Node? = e
+            val parts = ArrayList<List<String>>()
+            while (n is org.w3c.dom.Element) { parts.add(0, listOf(n.namespaceURI ?: "", n.localName ?: n.tagName)); n = n.parentNode }
+            // JSON으로 적어 값 안의 글자가 다른 속성처럼 보이지 않게 한다(8-7 판 5: 공백으로 이어 붙이면 경계가 겹침)
+            groovy.json.JsonOutput.toJson(listOf(parts, attrs))
+        }
+        report.get().asFile.parentFile.mkdirs()
+        File(report.get().asFile.parentFile, "release.canon.txt").writeText(canon.joinToString("\n", postfix = "\n"))
+        val want = golden.get().asFile.readLines().filter { it.isNotBlank() && !it.startsWith("#") }
+        if (canon != want) {
+            val extra = canon - want.toSet()
+            val missing = want - canon.toSet()
+            throw GradleException("출시 매니페스트가 기준(android/release_manifest.golden.txt)과 다릅니다.\n" +
+                (errs.map { "- $it" } + extra.map { "+ 새로 생김: $it" } + missing.map { "- 사라짐: $it" } +
+                    (if (extra.isEmpty() && missing.isEmpty()) listOf("순서가 다름") else emptyList())).joinToString("\n") +
+                "\n바뀐 것이 맞으면 검토를 받은 뒤 build/manifestCheck/release.canon.txt로 기준 파일을 바꾸세요.")
+        }
         if (errs.isNotEmpty()) throw GradleException("출시 매니페스트에 정하지 않은 것이 있습니다:\n" + errs.joinToString("\n"))
-        report.get().asFile.writeText((exported.sorted() + perms.sorted()).joinToString("\n", postfix = "\n"))
+        report.get().asFile.writeText((all.sorted() + exported.sorted().map { "열림 $it" } + perms.sorted()).joinToString("\n", postfix = "\n"))
     }
 }
 
@@ -114,7 +199,10 @@ android {
 
     signingConfigs {
         if (uploadKey != null) create("upload") {
-            storeFile = File(uploadKey.getValue("HANJANG_UPLOAD_STORE_FILE"))
+            // env 파일 경로처럼 ~를 펼친다(8-7). 상대 경로는 Gradle 데몬 폴더 기준이 되어 엉뚱한 곳을 찾으니 받지 않는다
+            val store = File(uploadKey.getValue("HANJANG_UPLOAD_STORE_FILE").replaceFirst(Regex("^~(?=/)"), System.getProperty("user.home")))
+            if (!store.isAbsolute) throw GradleException("HANJANG_UPLOAD_STORE_FILE는 절대 경로나 ~/로 시작하는 경로여야 합니다")
+            storeFile = store
             storePassword = uploadKey.getValue("HANJANG_UPLOAD_STORE_PASSWORD")
             keyAlias = uploadKey.getValue("HANJANG_UPLOAD_KEY_ALIAS")
             keyPassword = uploadKey.getValue("HANJANG_UPLOAD_KEY_PASSWORD")
@@ -164,9 +252,12 @@ androidComponents {
             val name = v.name.replaceFirstChar { it.uppercase() }
             val check = tasks.register<ManifestCheckTask>("${v.name}ManifestCheck") {
                 manifest.set(v.artifacts.get(SingleArtifact.MERGED_MANIFEST))
+                golden.set(rootProject.layout.projectDirectory.file("release_manifest.golden.txt"))
                 report.set(layout.buildDirectory.file("manifestCheck/${v.name}.txt"))
             }
-            tasks.matching { it.name == "assemble$name" || it.name == "bundle$name" }.configureEach { dependsOn(check) }
+            // assemble·bundle만 걸면 packageRelease 같은 패키징 작업을 바로 부를 때 검사를 건너뛴다(8-7)
+            val gated = setOf("assemble$name", "bundle$name", "package$name", "package${name}Bundle", "sign${name}Bundle", "package${name}UniversalApk")
+            tasks.matching { it.name in gated }.configureEach { dependsOn(check) }
         }
     }
 }

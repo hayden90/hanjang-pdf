@@ -32,7 +32,17 @@ cd android
 
 env 파일(저장소 밖, 권한 600)에는 `HANJANG_UPLOAD_STORE_FILE`·`HANJANG_UPLOAD_KEY_ALIAS`·`HANJANG_UPLOAD_STORE_PASSWORD`·
 `HANJANG_UPLOAD_KEY_PASSWORD`를 `이름=값` 줄로 적습니다(같은 이름의 환경 변수로 줘도 됩니다). 일부만 있으면 빌드가 멈춥니다.
-release 빌드는 병합 매니페스트를 검사해(`releaseManifestCheck`) 정하지 않은 권한이나 밖에 열린 구성 요소가 있으면 멈춥니다.
+env 파일 경로와 `HANJANG_UPLOAD_STORE_FILE`은 절대 경로나 `~/`로 시작하는 경로로 적습니다. 값에 따옴표를 두르거나
+줄 앞에 `export`를 붙이지 않습니다(그대로 값·이름으로 읽힙니다).
+release 빌드는 병합 매니페스트를 검사해(`releaseManifestCheck`) 정하지 않은 권한, 정해 둔 것 밖의 구성 요소
+(activity·service·receiver·provider, 밖에 열렸든 아니든), 밖에 열린 구성 요소가 있으면 멈춥니다. 검사는 assemble·bundle뿐
+아니라 `packageRelease`·`packageReleaseBundle`·`signReleaseBundle`·`packageReleaseUniversalApk`에도 걸립니다.
+마지막으로 병합 매니페스트 전체(모든 요소와 속성, 판 번호만 뺌)를 `android/release_manifest.golden.txt`와 글자 그대로 대조해
+다르면 멈춥니다. 라이브러리를 올리거나 매니페스트를 바꿔 기준이 달라지면, 바뀐 줄을 독립 검토받은 뒤
+`android/app/build/manifestCheck/release.canon.txt`(검사 때 새로 씀)로 기준 파일을 바꿉니다(첫 두 줄 # 설명은 남김).
+AGP를 올릴 때는 `./gradlew :app:tasks --all`과 `--dry-run`으로 release 산출물 작업이 모두 이 검사를 거치는지 다시 봅니다.
+
+런처 아이콘은 `app/src/main/res/mipmap-anydpi-v26/`(적응형: 남색 바탕 + 문서 벡터 + 테마 아이콘용 monochrome)입니다.
 
 - Gradle 9.8.2(래퍼가 받음), Android Gradle Plugin 9.4.0, Kotlin·Compose(BOM 2025.10.00)
 - minSdk 26(안드로이드 8.0), targetSdk 36
