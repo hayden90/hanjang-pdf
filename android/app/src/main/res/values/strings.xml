@@ -254,4 +254,7 @@
     <string name="core_dir_failed">폴더를 만들지 못했습니다.</string>
     <string name="core_work_copy">작업 사본을 만들지 못했습니다.</string>
     <string name="core_no_workdir">작업 폴더가 없습니다.</string>
+    <string name="bubigter_link">부빅터에서 건물·실거래 정보 보기</string>
+    <string name="bubigter_card">빌딩 실거래·시세가 궁금하면 부빅터에서 확인해 보세요.</string>
+    <string name="about_bubigter">한장PDF는 빌딩 실거래·시세 정보 사이트 부빅터가 만들었습니다.</string>
 </resources>

@@ -1865,3 +1865,18 @@ def test_editor_sizer_with_move_and_zoom(win, tmp_path):
     (a,) = list(t.d.doc[0].annots())
     eb = annots.text_style(t.d.doc, 0, a.xref)["edit_box"]
     assert abs(eb.x0 - 130) < 1 and abs(eb.width - w_page) < 1 and abs(eb.height - h_page) < 1
+
+
+def test_empty_screen_bubigter_card(win, monkeypatch, tmp_path):
+    """빈 화면에만 열기 안내와 부빅터 안내가 보이고, 링크는 빈 화면 출처 표시로 브라우저에 넘긴다(2026-11-03)."""
+    import pdfviewer.ui.main_window as mw
+    opened = []
+    monkeypatch.setattr(mw, "open_url", opened.append)
+    assert win.stack.currentWidget() is win.empty
+    win.empty_bubigter.click()
+    assert opened == [mw.BUBIGTER_EMPTY_URL]
+    assert opened[0].startswith(mw.BUBIGTER_URL) and opened[0].endswith("utm_content=empty")
+    win.open_path(str(make_pdf(tmp_path / "a.pdf", ["A"])))
+    assert win.stack.currentWidget() is win.tabs
+    win.close_tab(0)
+    assert win.tabs.count() == 0 and win.stack.currentWidget() is win.empty

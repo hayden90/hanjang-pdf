@@ -4,7 +4,7 @@
   #define DistDir "..\..\dist\HanjangPDF"
 #endif
 #ifndef AppVer
-  #define AppVer "rev14"
+  #define AppVer "rev15"
 #endif
 #ifndef OutDir
   #define OutDir "..\..\installer_out"

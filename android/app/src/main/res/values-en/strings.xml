@@ -254,4 +254,7 @@
     <string name="core_dir_failed">Could not create the folder.</string>
     <string name="core_work_copy">Could not make the working copy.</string>
     <string name="core_no_workdir">The working folder is missing.</string>
+    <string name="bubigter_link">Building and sales data on Bubigter</string>
+    <string name="bubigter_card">Curious about building sales and prices in Korea? Check them on Bubigter.</string>
+    <string name="about_bubigter">HanjangPDF is made by Bubigter, a Korean building sales and price data site.</string>
 </resources>

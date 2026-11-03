@@ -184,6 +184,9 @@ internal fun App(model: ViewerModel) {
                         onClick = { menu = false; model.undo() }, modifier = Modifier.testTag("undo"))
                     DropdownMenuItem(text = { Text(stringResource(R.string.redo)) }, enabled = has && model.canRedo && model.tools.editor == null,
                         onClick = { menu = false; model.redo() }, modifier = Modifier.testTag("redo"))
+                    DropdownMenuItem(text = { Text(stringResource(R.string.bubigter_link)) },
+                        onClick = { menu = false; com.bubigter.hanjangpdf.ui.About.open(ctx, com.bubigter.hanjangpdf.ui.About.bubigterUrl("menu")) },
+                        modifier = Modifier.testTag("bubigterMenu"))
                     DropdownMenuItem(text = { Text(stringResource(R.string.about)) }, onClick = { menu = false; showAbout = true },
                         modifier = Modifier.testTag("aboutOpen"))
                 }
@@ -203,6 +206,11 @@ internal fun App(model: ViewerModel) {
             else Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(stringResource(R.string.empty_hint), Modifier.padding(16.dp))
                 Button(onClick = openPdf) { Text(stringResource(R.string.open_pdf)) }
+                // 문서를 열기 전 빈 화면에만 보이는 부빅터 안내(읽는 중에는 안 보임)
+                Text(stringResource(R.string.bubigter_card), Modifier.padding(start = 24.dp, end = 24.dp, top = 32.dp),
+                    style = MaterialTheme.typography.bodyMedium, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                TextButton(onClick = { com.bubigter.hanjangpdf.ui.About.open(ctx, com.bubigter.hanjangpdf.ui.About.bubigterUrl("empty")) },
+                    Modifier.testTag("bubigterEmpty")) { Text(stringResource(R.string.bubigter_link)) }
             }
             if (model.busy) CircularProgressIndicator(Modifier.align(Alignment.Center))
         }

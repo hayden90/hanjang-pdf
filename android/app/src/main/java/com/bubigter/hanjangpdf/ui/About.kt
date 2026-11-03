@@ -40,6 +40,10 @@ import com.bubigter.hanjangpdf.R
  */
 object About {
     const val REPO = "https://github.com/hayden90/hanjang-pdf"
+    const val BUBIGTER = "https://www.bubigter.com/"
+
+    /** 부빅터 연결 주소. [where](empty·menu·about)로 어느 자리에서 눌렀는지 방문 통계에서 가른다(PC판 BUBIGTER_URL과 같은 꼴). */
+    fun bubigterUrl(where: String) = "${BUBIGTER}?utm_source=hanjangpdf_android&utm_medium=app&utm_content=$where"
 
     fun version(ctx: Context): String = ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName ?: "?"
 
@@ -93,6 +97,10 @@ fun AboutScreen(onClose: () -> Unit) {
                 style = MaterialTheme.typography.headlineSmall)
             Text(stringResource(R.string.about_desc), Modifier.padding(top = 4.dp))
             Text(stringResource(R.string.about_copyright), Modifier.padding(top = 12.dp))
+            Text(stringResource(R.string.about_bubigter), Modifier.padding(top = 4.dp))
+            TextButton(onClick = { About.open(ctx, About.bubigterUrl("about")) }, Modifier.testTag("bubigterAbout")) {
+                Text(stringResource(R.string.bubigter_link))
+            }
             Text(stringResource(R.string.about_agpl), Modifier.padding(top = 12.dp))
             TextButton(onClick = { full = "LICENSE.txt" }, Modifier.testTag("agplFull")) { Text(stringResource(R.string.about_agpl_full)) }
             Text(stringResource(R.string.about_source, About.tag(ctx)), Modifier.padding(top = 12.dp))

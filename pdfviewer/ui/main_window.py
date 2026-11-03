@@ -6,7 +6,8 @@ import os
 from PySide6.QtCore import QSettings, Qt, QUrl
 from PySide6.QtGui import QAction, QActionGroup, QColor, QDesktopServices, QIntValidator, QKeySequence
 from PySide6.QtWidgets import (
-    QColorDialog, QFileDialog, QLabel, QLineEdit, QMainWindow, QMenu, QMessageBox, QTabWidget, QToolBar, QToolButton,
+    QColorDialog, QFileDialog, QLabel, QLineEdit, QMainWindow, QMenu, QMessageBox, QPushButton, QStackedWidget, QTabWidget,
+    QToolBar, QToolButton, QVBoxLayout, QWidget,
 )
 
 from ..core.doc_ops import DocOpError
@@ -21,9 +22,10 @@ from .. import i18n
 from ..i18n import tr
 
 APP_NAME = tr("한장PDF")
-APP_VERSION = "rev14"
+APP_VERSION = "rev15"
 SOURCE_URL = "https://github.com/hayden90/hanjang-pdf"  # AGPL: 받은 사람이 소스를 받을 수 있는 곳
 BUBIGTER_URL = "https://www.bubigter.com/?utm_source=hanjangpdf&utm_medium=app"
+BUBIGTER_EMPTY_URL = BUBIGTER_URL + "&utm_content=empty"  # 빈 화면 안내(방문 통계에서 도움말 메뉴와 가름)
 ABOUT_TEXT = (
     f"<b>{APP_NAME}</b> {APP_VERSION}<br>" + tr("서류를 보기 좋게 만든 PDF 뷰어") + "<br><br>"
     + tr("이 프로그램은 자유 소프트웨어입니다. GNU AGPL v3 조건으로 다시 배포하거나 고칠 수 있으며,"
@@ -50,7 +52,12 @@ class MainWindow(QMainWindow):
         self.tabs = QTabWidget(tabsClosable=True, movable=True, documentMode=True)
         self.tabs.tabCloseRequested.connect(self.close_tab)
         self.tabs.currentChanged.connect(lambda _: self._sync())
-        self.setCentralWidget(self.tabs)
+        # 문서가 없을 때만 보이는 빈 화면(열기 안내 + 부빅터 안내). 읽는 중에는 탭이 덮는다
+        self.empty = self._build_empty()
+        self.stack = QStackedWidget()
+        self.stack.addWidget(self.empty)
+        self.stack.addWidget(self.tabs)
+        self.setCentralWidget(self.stack)
         self.page_box = QLineEdit(fixedWidth=48, alignment=Qt.AlignmentFlag.AlignCenter)
         self.page_box.setValidator(QIntValidator(1, 99999))
         self.page_box.returnPressed.connect(self._goto_typed_page)
@@ -346,10 +353,28 @@ class MainWindow(QMainWindow):
         w = self.tabs.currentWidget()
         return w if isinstance(w, DocTab) else None
 
+    def _build_empty(self) -> QWidget:
+        w = QWidget()
+        lay = QVBoxLayout(w)
+        lay.addStretch(1)
+        hint = QLabel(tr("PDF 파일을 이 창에 끌어다 놓거나 Ctrl+O로 여세요."), alignment=Qt.AlignmentFlag.AlignCenter)
+        card = QLabel(tr("빌딩 실거래·시세가 궁금하면 부빅터에서 확인해 보세요."), alignment=Qt.AlignmentFlag.AlignCenter)
+        card.setContentsMargins(0, 24, 0, 0)
+        self.empty_bubigter = QPushButton(tr("부빅터에서 건물·실거래 정보 보기"), flat=True)
+        self.empty_bubigter.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.empty_bubigter.setToolTip(tr("부빅터 웹사이트를 브라우저로 엽니다"))
+        self.empty_bubigter.clicked.connect(lambda: open_url(BUBIGTER_EMPTY_URL))
+        for x in (hint, card):
+            lay.addWidget(x)
+        lay.addWidget(self.empty_bubigter, alignment=Qt.AlignmentFlag.AlignHCenter)
+        lay.addStretch(2)
+        return w
+
     def _show_empty_hint(self):
         self.statusBar().showMessage(tr("PDF 파일을 이 창에 끌어다 놓거나 Ctrl+O로 여세요."))
 
     def _sync(self):
+        self.stack.setCurrentWidget(self.tabs if self.tabs.count() else self.empty)
         t = self.tab()
         has = t is not None
         for a in (self.a_save, self.a_save_as, self.a_print, self.a_undo, self.a_redo, self.a_export, self.a_insert,

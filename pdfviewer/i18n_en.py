@@ -55,6 +55,7 @@ EN: dict[str, str] = {
     "다음 쪽 ▶": "Next ▶",
     "부빅터에서 건물·실거래 정보 보기": "Building and transaction data on Bubigter",
     "부빅터 웹사이트를 브라우저로 엽니다": "Opens the Bubigter website in your browser",
+    "빌딩 실거래·시세가 궁금하면 부빅터에서 확인해 보세요.": "Curious about building sales and prices in Korea? Check them on Bubigter.",
     "한장PDF 소스 코드(GitHub)를 브라우저로 엽니다": "Opens the HanjangPDF source code (GitHub) in your browser",
     "PDF 파일을 이 창에 끌어다 놓거나 Ctrl+O로 여세요.": "Drag a PDF file into this window, or press Ctrl+O to open one.",
     "PDF 열기": "Open PDF",
