@@ -8,6 +8,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
@@ -137,6 +138,10 @@ internal fun App(model: ViewerModel) {
         val titleText = (if (model.dirty) "• " else "") + model.title.ifEmpty { stringResource(R.string.app_name) }
         // 글꼴이 크면 단추에 밀려 문서 이름이 '…'만 남으므로 이름을 단추 줄 위에 따로 둔다(8-5)
         val titleAbove = model.doc != null && LocalDensity.current.fontScale >= 1.3f
+        // 스크롤이 멈추면 제목 줄을 접는다([ViewerModel.barHidden], 쪽 목록·빈 화면에서는 늘 펼침).
+        // 도구를 바꾸거나 도구 모음을 여닫으면 펼친다(접힌 채 다른 도구로 누르면 메모·글자 상자가 바로 열리던 것, Codex 판 1 HIGH)
+        LaunchedEffect(model.doc, showPages, model.tools.tool, model.tools.visible) { model.barHidden = false }
+        AnimatedVisibility(!(model.barHidden && model.doc != null && !showPages)) { Column {
         if (titleAbove) Text(titleText, Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp).semantics { heading() }.testTag("title"),
             maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium)
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -184,6 +189,7 @@ internal fun App(model: ViewerModel) {
                 }
             }
         }
+        } }
         if (searching && model.doc != null && !showPages) SearchBar(model)
         if (model.tools.visible && model.doc != null && !showPages) ToolBar(model)
         Box(Modifier.weight(1f).fillMaxWidth()) {

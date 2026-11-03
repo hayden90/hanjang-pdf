@@ -105,6 +105,8 @@ class ViewerModel(app: Application) : AndroidViewModel(app) {
         private set
     /** 쪽 목록에서 고른 쪽·편집 뒤 보던 쪽(화면이 옮긴 뒤 null로). */
     var jumpPage by mutableStateOf<Int?>(null)
+    /** 스크롤이 멈춰 제목 줄을 접었는지(가로로 읽을 때 보이는 양을 늘림, 화면을 한 번 누르면 다시 펼침). */
+    var barHidden by mutableStateOf(false)
     /** 저장 안 한 편집이 있는데 다른 문서를 열려고 할 때 묻는다. */
     var pendingOpen by mutableStateOf<Pair<Uri, Int>?>(null)
         private set

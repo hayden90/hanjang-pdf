@@ -3,6 +3,7 @@ package com.bubigter.hanjangpdf.ui
 import android.graphics.Bitmap
 import android.graphics.Paint
 import android.graphics.RectF
+import android.view.accessibility.AccessibilityManager
 import androidx.compose.animation.core.AnimationState
 import androidx.compose.animation.core.animateDecay
 import androidx.compose.animation.core.exponentialDecay
@@ -47,6 +48,7 @@ import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
@@ -105,6 +107,12 @@ fun PdfView(model: ViewerModel, doc: ViewDoc, modifier: Modifier = Modifier) {
         }
         val scope = rememberCoroutineScope()
         val flingJob = remember(doc) { arrayOfNulls<Job>(1) } // 진행 중인 관성 스크롤
+        val a11y = LocalContext.current.getSystemService(AccessibilityManager::class.java)
+        // 손가락 스크롤이 멈추면 제목 줄을 접는다. 보기 도구일 때만, TalkBack을 쓰면 단추가 사라지지 않게 접지 않는다.
+        fun hideBar() {
+            if (tools.tool == Tool.VIEW && tools.editor == null && tools.note == null && a11y?.isTouchExplorationEnabled != true)
+                model.barHidden = true
+        }
 
         fun zoomAt(newZoom: Float, c: Offset) {
             val z = newZoom.coerceIn(PageLayout.MIN_ZOOM, PageLayout.MAX_ZOOM)
@@ -194,7 +202,11 @@ fun PdfView(model: ViewerModel, doc: ViewDoc, modifier: Modifier = Modifier) {
                     detectTapGestures(onDoubleTap = { c ->
                         flingJob[0]?.cancel()
                         zoomAt(if (zoom < 1.9f) 2.5f else 1f, c)
-                    }, onTap = { c -> toPage(c)?.let { (p, pt) -> tools.tap(p, pt) } })
+                    }, onTap = { c ->
+                        // 접힌 제목 줄은 한 번 눌러 펼친다(그 누르기로 메모·글자 상자를 열지는 않음)
+                        if (model.barHidden) model.barHidden = false
+                        else toPage(c)?.let { (p, pt) -> tools.tap(p, pt) }
+                    })
                 }
                 .pointerInput(layout) {
                     awaitEachGesture {
@@ -217,8 +229,11 @@ fun PdfView(model: ViewerModel, doc: ViewDoc, modifier: Modifier = Modifier) {
                             dragNow = null
                             if (!multi) {
                                 val from = toPage(start)
+                                val isTap = (last - start).getDistance() <= viewConfiguration.touchSlop
+                                // 접힌 제목 줄은 한 번 눌러 펼치기만 한다(보기 도구와 같게, 쪽 밖 회색 자리를 눌러도)
+                                if (isTap && model.barHidden) { model.barHidden = false; return@awaitEachGesture }
                                 if (from != null) {
-                                    if ((last - start).getDistance() <= viewConfiguration.touchSlop) tools.tap(from.first, from.second)
+                                    if (isTap) tools.tap(from.first, from.second)
                                     else tools.drag(from.first, from.second, toPage(last, from.first)!!.second)
                                 }
                                 return@awaitEachGesture
@@ -249,6 +264,8 @@ fun PdfView(model: ViewerModel, doc: ViewDoc, modifier: Modifier = Modifier) {
                                 val sx = AnimationState(0f, -v.x); val sy = AnimationState(0f, -v.y)
                                 launch { sx.animateDecay(exponentialDecay()) { ox = layout.clampX(ox + (value - lx), zoom); lx = value } }
                                 sy.animateDecay(exponentialDecay()) { oy = layout.clampY(oy + (value - ly), zoom, viewH); ly = value }
+                                // 관성까지 다 멈춘 뒤에 접는다(다시 만지면 이 작업이 취소돼 접지 않음)
+                                hideBar()
                             }
                         }
                     }
