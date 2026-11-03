@@ -34,6 +34,9 @@ HanjangPDF lets you view, mark up and organize PDF documents on your phone or ta
 - No storage permission: it opens only files you pick
 - No ads, no analytics, no sign-up
 
+■ Made by
+Bubigter (https://www.bubigter.com), a Korean building sales and price data site. The Bubigter links in the app open your browser only when you tap them.
+
 Korean and English interface (follows the device language), with TalkBack and keyboard support.
 HanjangPDF is free software (GNU AGPL v3) and uses the MuPDF engine.
 Source: https://github.com/hayden90/hanjang-pdf
